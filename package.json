@@ -1,0 +1,43 @@
+{
+  "name": "expo-sherpa-onnx",
+  "version": "0.1.0",
+  "description": "Expo module for using sherpa-onnx in react native expo",
+  "main": "build/index.js",
+  "types": "build/index.d.ts",
+  "scripts": {
+    "build": "expo-module build",
+    "clean": "expo-module clean",
+    "lint": "expo-module lint",
+    "test": "expo-module test",
+    "prepare": "expo-module prepare",
+    "prepublishOnly": "expo-module prepublishOnly",
+    "expo-module": "expo-module",
+    "open:ios": "xed example/ios",
+    "open:android": "open -a \"Android Studio\" example/android"
+  },
+  "keywords": [
+    "react-native",
+    "expo",
+    "expo-sherpa-onnx",
+    "ExpoSherpaOnnx"
+  ],
+  "repository": "https://github.com/tirth0/expo-sherpa-onnx",
+  "bugs": {
+    "url": "https://github.com/tirth0/expo-sherpa-onnx/issues"
+  },
+  "author": "tirth0 <tirtharajsengupta@gmail.com> (https://github.com/tirth0)",
+  "license": "MIT",
+  "homepage": "https://github.com/tirth0/expo-sherpa-onnx#readme",
+  "dependencies": {},
+  "devDependencies": {
+    "@types/react": "~19.1.1",
+    "expo-module-scripts": "^55.0.2",
+    "expo": "^55.0.8",
+    "react-native": "0.82.1"
+  },
+  "peerDependencies": {
+    "expo": "*",
+    "react": "*",
+    "react-native": "*"
+  }
+}
