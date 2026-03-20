@@ -1,17 +1,25 @@
 package com.k2fsa.sherpa.onnx
 
 class OfflineStream(var ptr: Long) {
-    fun acceptWaveform(samples: FloatArray, sampleRate: Int) =
-        acceptWaveform(ptr, samples, sampleRate)
+    fun acceptWaveform(samples: FloatArray, sampleRate: Int) = synchronized(this) {
+        if (ptr != 0L) acceptWaveform(ptr, samples, sampleRate)
+    }
 
-    fun setOption(key: String, value: String) = setOption(ptr, key, value)
+    fun setOption(key: String, value: String) = synchronized(this) {
+        if (ptr != 0L) setOption(ptr, key, value)
+    }
 
-    fun getOption(key: String): String = getOption(ptr, key)
+    fun getOption(key: String): String = synchronized(this) {
+        if (ptr == 0L) return ""
+        return getOption(ptr, key)
+    }
 
     protected fun finalize() {
-        if (ptr != 0L) {
-            delete(ptr)
-            ptr = 0
+        synchronized(this) {
+            if (ptr != 0L) {
+                delete(ptr)
+                ptr = 0
+            }
         }
     }
 

@@ -1,2 +1,5 @@
 export { default } from './ExpoSherpaOnnxModule';
 export * from './ExpoSherpaOnnx.types';
+export * from './utils';
+export * from './modelDetection';
+export * from './stt';

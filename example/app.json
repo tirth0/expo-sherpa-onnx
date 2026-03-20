@@ -11,9 +11,15 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
+    "plugins": [
+      "@mykin-ai/expo-audio-stream"
+    ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "expo.modules.sherpaonnx.example"
+      "bundleIdentifier": "expo.modules.sherpaonnx.example",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "This app needs microphone access for speech-to-text"
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -23,7 +29,8 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "expo.modules.sherpaonnx.example"
+      "package": "expo.modules.sherpaonnx.example",
+      "permissions": ["RECORD_AUDIO"]
     },
     "web": {
       "favicon": "./assets/favicon.png"

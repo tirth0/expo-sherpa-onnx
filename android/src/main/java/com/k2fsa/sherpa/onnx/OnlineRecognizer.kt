@@ -102,25 +102,54 @@ class OnlineRecognizer(
     }
 
     protected fun finalize() {
-        if (ptr != 0L) {
-            delete(ptr)
-            ptr = 0
+        synchronized(this) {
+            if (ptr != 0L) {
+                delete(ptr)
+                ptr = 0
+            }
         }
     }
 
     fun release() = finalize()
 
-    fun createStream(hotwords: String = ""): OnlineStream {
+    val isValid: Boolean get() = synchronized(this) { ptr != 0L }
+
+    fun createStream(hotwords: String = ""): OnlineStream = synchronized(this) {
+        check(ptr != 0L) { "OnlineRecognizer has been released" }
         val p = createStream(ptr, hotwords)
         return OnlineStream(p)
     }
 
-    fun reset(stream: OnlineStream) = reset(ptr, stream.ptr)
-    fun decode(stream: OnlineStream) = decode(ptr, stream.ptr)
-    fun isEndpoint(stream: OnlineStream) = isEndpoint(ptr, stream.ptr)
-    fun isReady(stream: OnlineStream) = isReady(ptr, stream.ptr)
-    fun getResult(stream: OnlineStream): OnlineRecognizerResult {
-        return getResult(ptr, stream.ptr)
+    fun reset(stream: OnlineStream) = synchronized(this) {
+        if (ptr == 0L) return
+        synchronized(stream) { if (stream.ptr != 0L) reset(ptr, stream.ptr) }
+    }
+
+    fun decode(stream: OnlineStream) = synchronized(this) {
+        if (ptr == 0L) return
+        synchronized(stream) { if (stream.ptr != 0L) decode(ptr, stream.ptr) }
+    }
+
+    fun isEndpoint(stream: OnlineStream): Boolean = synchronized(this) {
+        if (ptr == 0L) return false
+        return synchronized(stream) {
+            if (stream.ptr == 0L) false else isEndpoint(ptr, stream.ptr)
+        }
+    }
+
+    fun isReady(stream: OnlineStream): Boolean = synchronized(this) {
+        if (ptr == 0L) return false
+        return synchronized(stream) {
+            if (stream.ptr == 0L) false else isReady(ptr, stream.ptr)
+        }
+    }
+
+    fun getResult(stream: OnlineStream): OnlineRecognizerResult = synchronized(this) {
+        if (ptr == 0L) return OnlineRecognizerResult("", emptyArray(), floatArrayOf(), floatArrayOf())
+        return synchronized(stream) {
+            if (stream.ptr == 0L) OnlineRecognizerResult("", emptyArray(), floatArrayOf(), floatArrayOf())
+            else getResult(ptr, stream.ptr)
+        }
     }
 
     private external fun delete(ptr: Long)

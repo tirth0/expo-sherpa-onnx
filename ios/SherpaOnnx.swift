@@ -256,10 +256,13 @@ class SherpaOnnxRecognizer {
   private let lock = NSLock()  // for thread-safe stream replacement
 
   /// Constructor taking a model config
-  init(
+  init?(
     config: UnsafePointer<SherpaOnnxOnlineRecognizerConfig>
   ) {
-    self.recognizer = SherpaOnnxCreateOnlineRecognizer(config)
+    guard let recPtr = SherpaOnnxCreateOnlineRecognizer(config) else {
+      return nil
+    }
+    self.recognizer = recPtr
     self.stream = SherpaOnnxCreateOnlineStream(recognizer)
   }
 
@@ -719,11 +722,11 @@ class SherpaOnnxOfflineRecognizer {
   /// A pointer to the underlying counterpart in C
   private let recognizer: OpaquePointer
 
-  init(
+  init?(
     config: UnsafePointer<SherpaOnnxOfflineRecognizerConfig>
   ) {
     guard let ptr = SherpaOnnxCreateOfflineRecognizer(config) else {
-      fatalError("Failed to create SherpaOnnxOfflineRecognizer")
+      return nil
     }
     self.recognizer = ptr
   }

@@ -167,26 +167,39 @@ class OfflineRecognizer(
     }
 
     protected fun finalize() {
-        if (ptr != 0L) {
-            delete(ptr)
-            ptr = 0
+        synchronized(this) {
+            if (ptr != 0L) {
+                delete(ptr)
+                ptr = 0
+            }
         }
     }
 
     fun release() = finalize()
 
-    fun createStream(): OfflineStream {
+    val isValid: Boolean get() = synchronized(this) { ptr != 0L }
+
+    fun createStream(): OfflineStream = synchronized(this) {
+        check(ptr != 0L) { "OfflineRecognizer has been released" }
         val p = createStream(ptr)
         return OfflineStream(p)
     }
 
-    fun getResult(stream: OfflineStream): OfflineRecognizerResult {
-        return getResult(stream.ptr)
+    fun getResult(stream: OfflineStream): OfflineRecognizerResult = synchronized(this) {
+        return synchronized(stream) {
+            if (stream.ptr == 0L) OfflineRecognizerResult("", emptyArray(), floatArrayOf(), "", "", "", floatArrayOf())
+            else getResult(stream.ptr)
+        }
     }
 
-    fun decode(stream: OfflineStream) = decode(ptr, stream.ptr)
+    fun decode(stream: OfflineStream) = synchronized(this) {
+        if (ptr == 0L) return
+        synchronized(stream) { if (stream.ptr != 0L) decode(ptr, stream.ptr) }
+    }
 
-    fun setConfig(config: OfflineRecognizerConfig) = setConfig(ptr, config)
+    fun setConfig(config: OfflineRecognizerConfig) = synchronized(this) {
+        if (ptr != 0L) setConfig(ptr, config)
+    }
 
     private external fun delete(ptr: Long)
 
