@@ -28,12 +28,13 @@
   "author": "tirth0 <tirtharajsengupta@gmail.com> (https://github.com/tirth0)",
   "license": "MIT",
   "homepage": "https://github.com/tirth0/expo-sherpa-onnx#readme",
-  "dependencies": {},
   "devDependencies": {
     "@types/react": "~19.1.1",
-    "expo-module-scripts": "^55.0.2",
     "expo": "^55.0.8",
-    "react-native": "0.82.1"
+    "expo-module-scripts": "^55.0.2",
+    "expo-modules-test-core": "^55.0.2",
+    "react-native": "0.82.1",
+    "typescript": "^5.9.3"
   },
   "peerDependencies": {
     "expo": "*",
