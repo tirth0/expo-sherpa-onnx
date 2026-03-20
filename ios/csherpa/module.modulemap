@@ -1,0 +1,4 @@
+module csherpa {
+    umbrella header "csherpa.h"
+    export *
+}
