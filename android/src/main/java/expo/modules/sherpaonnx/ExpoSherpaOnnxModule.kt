@@ -16,6 +16,7 @@ class ExpoSherpaOnnxModule : Module() {
   private val onlineRecognizers = ConcurrentHashMap<Int, OnlineRecognizer>()
   private val onlineStreams = ConcurrentHashMap<Int, OnlineStream>()
   private val streamToRecognizer = ConcurrentHashMap<Int, Int>()
+  private val offlineTtsEngines = ConcurrentHashMap<Int, OfflineTts>()
 
   override fun definition() = ModuleDefinition {
     Name("ExpoSherpaOnnx")
@@ -33,6 +34,9 @@ class ExpoSherpaOnnxModule : Module() {
       val offlineRecs = offlineRecognizers.toMap()
       offlineRecognizers.clear()
       offlineRecs.values.forEach { try { it.release() } catch (_: Exception) {} }
+
+      offlineTtsEngines.values.forEach { it.release() }
+      offlineTtsEngines.clear()
     }
 
     // Version info
@@ -285,6 +289,120 @@ class ExpoSherpaOnnxModule : Module() {
       providers.add("xnnpack")
       providers.toList()
     }
+
+    Events("ttsChunk", "ttsComplete", "ttsError")
+
+    // =========================================================================
+    // Offline TTS
+    // =========================================================================
+
+    AsyncFunction("createOfflineTts") { config: Map<String, Any?> ->
+      Log.i(TAG, "=== createOfflineTts START ===")
+      Log.i(TAG, "  Raw config keys: ${config.keys}")
+      val ttsConfig = buildOfflineTtsConfig(config)
+      Log.i(TAG, "  Built ttsConfig, running validation...")
+      validateTtsConfig(ttsConfig)
+      Log.i(TAG, "  Validation passed. Calling OfflineTts constructor...")
+      val tts = try {
+        OfflineTts(null, ttsConfig)
+      } catch (e: Exception) {
+        Log.e(TAG, "  OfflineTts constructor threw: ${e.message}", e)
+        throw Exception("Native TTS creation failed: ${e.message}")
+      } catch (e: Error) {
+        Log.e(TAG, "  OfflineTts constructor threw Error: ${e.message}", e)
+        throw Exception("Native TTS creation failed (Error): ${e.message}")
+      }
+      Log.i(TAG, "  OfflineTts constructor returned, checking sampleRate...")
+      val sr = try { tts.sampleRate() } catch (e: Exception) {
+        Log.e(TAG, "  sampleRate() failed: ${e.message}", e)
+        tts.release()
+        throw Exception("TTS engine invalid (sampleRate failed): ${e.message}")
+      }
+      Log.i(TAG, "  sampleRate=$sr, checking numSpeakers...")
+      val ns = try { tts.numSpeakers() } catch (e: Exception) {
+        Log.e(TAG, "  numSpeakers() failed: ${e.message}", e)
+        tts.release()
+        throw Exception("TTS engine invalid (numSpeakers failed): ${e.message}")
+      }
+      Log.i(TAG, "  numSpeakers=$ns")
+      val handle = handleCounter.incrementAndGet()
+      offlineTtsEngines[handle] = tts
+      Log.i(TAG, "=== createOfflineTts DONE handle=$handle sr=$sr ns=$ns ===")
+      mapOf(
+        "handle" to handle,
+        "sampleRate" to sr,
+        "numSpeakers" to ns,
+      )
+    }
+
+    AsyncFunction("offlineTtsGenerate") { handle: Int, text: String, sid: Int, speed: Double ->
+      Log.i(TAG, "=== offlineTtsGenerate START handle=$handle textLen=${text.length} sid=$sid speed=$speed ===")
+      val tts = offlineTtsEngines[handle]
+        ?: throw IllegalArgumentException("Invalid TTS handle: $handle")
+      Log.i(TAG, "  Calling tts.generate()...")
+      val audio = try {
+        tts.generate(text, sid, speed.toFloat())
+      } catch (e: Exception) {
+        Log.e(TAG, "  tts.generate() threw: ${e.message}", e)
+        throw Exception("TTS generate failed: ${e.message}")
+      }
+      Log.i(TAG, "  Generated ${audio.samples.size} samples at ${audio.sampleRate} Hz")
+      Log.i(TAG, "=== offlineTtsGenerate DONE ===")
+      mapOf(
+        "samples" to audio.samples.map { it.toDouble() },
+        "sampleRate" to audio.sampleRate,
+      )
+    }
+
+    AsyncFunction("offlineTtsSampleRate") { handle: Int ->
+      val tts = offlineTtsEngines[handle]
+        ?: throw IllegalArgumentException("Invalid TTS handle: $handle")
+      tts.sampleRate()
+    }
+
+    AsyncFunction("offlineTtsNumSpeakers") { handle: Int ->
+      val tts = offlineTtsEngines[handle]
+        ?: throw IllegalArgumentException("Invalid TTS handle: $handle")
+      tts.numSpeakers()
+    }
+
+    AsyncFunction("destroyOfflineTts") { handle: Int ->
+      Log.i(TAG, "=== destroyOfflineTts handle=$handle ===")
+      val tts = offlineTtsEngines.remove(handle)
+      if (tts != null) {
+        try { tts.release() } catch (e: Exception) {
+          Log.e(TAG, "  release() threw: ${e.message}", e)
+        }
+      }
+      Log.i(TAG, "=== destroyOfflineTts DONE ===")
+    }
+
+    AsyncFunction("offlineTtsGenerateStreaming") { handle: Int, text: String, sid: Int, speed: Double, requestId: String ->
+      Log.i(TAG, "=== offlineTtsGenerateStreaming START handle=$handle textLen=${text.length} ===")
+      val tts = offlineTtsEngines[handle]
+        ?: throw IllegalArgumentException("Invalid TTS handle: $handle")
+      try {
+        val audio = tts.generateWithCallback(text, sid, speed.toFloat()) { samples ->
+          sendEvent("ttsChunk", mapOf(
+            "requestId" to requestId,
+            "samples" to samples.map { it.toDouble() },
+          ))
+          0
+        }
+        Log.i(TAG, "  Streaming done, ${audio.samples.size} total samples")
+        sendEvent("ttsComplete", mapOf(
+          "requestId" to requestId,
+          "sampleRate" to audio.sampleRate,
+        ))
+      } catch (e: Exception) {
+        Log.e(TAG, "  Streaming generate threw: ${e.message}", e)
+        sendEvent("ttsError", mapOf(
+          "requestId" to requestId,
+          "error" to (e.message ?: "Unknown TTS error"),
+        ))
+      }
+      Log.i(TAG, "=== offlineTtsGenerateStreaming DONE ===")
+    }
   }
 
   private fun resolveAssetPath(path: String): String {
@@ -515,6 +633,7 @@ class ExpoSherpaOnnxModule : Module() {
     val f = File(path)
     if (!f.exists()) throw Exception("$label not found: $path")
     if (f.length() == 0L) throw Exception("$label is empty (0 bytes): $path")
+    Log.i(TAG, "  [file] $label OK ($path, ${f.length()} bytes)")
   }
 
   private fun validateOfflineConfig(c: OfflineRecognizerConfig) {
@@ -583,5 +702,194 @@ class ExpoSherpaOnnxModule : Module() {
     }
 
     Log.i(TAG, "Online config validated OK")
+  }
+
+  private fun requireDir(path: String, label: String) {
+    if (path.isBlank()) return
+    val f = File(path)
+    if (!f.exists()) throw Exception("$label directory not found: $path")
+    if (!f.isDirectory) throw Exception("$label is not a directory: $path")
+    val count = f.listFiles()?.size ?: 0
+    if (count == 0) throw Exception("$label directory is empty: $path")
+    Log.i(TAG, "  [dir] $label OK ($path, $count items)")
+  }
+
+  private fun validateTtsConfig(c: OfflineTtsConfig) {
+    val vits = c.model.vits
+    val matcha = c.model.matcha
+    val kokoro = c.model.kokoro
+    val zipvoice = c.model.zipvoice
+    val kitten = c.model.kitten
+    val pocket = c.model.pocket
+    val supertonic = c.model.supertonic
+
+    val hasVits = vits.model.isNotBlank()
+    val hasMatcha = matcha.acousticModel.isNotBlank()
+    val hasKokoro = kokoro.model.isNotBlank()
+    val hasZipVoice = zipvoice.encoder.isNotBlank()
+    val hasKitten = kitten.model.isNotBlank()
+    val hasPocket = pocket.lmMain.isNotBlank()
+    val hasSupertonic = supertonic.textEncoder.isNotBlank()
+
+    Log.i(TAG, "  validateTts: vits=${hasVits} matcha=${hasMatcha} kokoro=${hasKokoro} zipvoice=${hasZipVoice} kitten=${hasKitten} pocket=${hasPocket} supertonic=${hasSupertonic}")
+
+    if (!hasVits && !hasMatcha && !hasKokoro && !hasZipVoice && !hasKitten && !hasPocket && !hasSupertonic) {
+      throw Exception("No TTS model files specified. Provide at least one model type (vits, matcha, kokoro, zipvoice, kitten, pocket, or supertonic).")
+    }
+
+    if (hasVits) {
+      Log.i(TAG, "  Validating VITS: model=${vits.model} tokens=${vits.tokens} lexicon=${vits.lexicon} dataDir=${vits.dataDir} dictDir=${vits.dictDir}")
+      requireFile(vits.model, "vits model")
+      if (vits.tokens.isNotBlank()) requireFile(vits.tokens, "vits tokens")
+      if (vits.lexicon.isNotBlank()) requireFile(vits.lexicon, "vits lexicon")
+      if (vits.dataDir.isNotBlank()) requireDir(vits.dataDir, "vits dataDir")
+      if (vits.dictDir.isNotBlank()) requireDir(vits.dictDir, "vits dictDir")
+    }
+    if (hasMatcha) {
+      Log.i(TAG, "  Validating Matcha: acousticModel=${matcha.acousticModel} vocoder=${matcha.vocoder} tokens=${matcha.tokens} dataDir=${matcha.dataDir}")
+      requireFile(matcha.acousticModel, "matcha acousticModel")
+      requireFile(matcha.vocoder, "matcha vocoder")
+      if (matcha.tokens.isNotBlank()) requireFile(matcha.tokens, "matcha tokens")
+      if (matcha.lexicon.isNotBlank()) requireFile(matcha.lexicon, "matcha lexicon")
+      if (matcha.dataDir.isNotBlank()) requireDir(matcha.dataDir, "matcha dataDir")
+      if (matcha.dictDir.isNotBlank()) requireDir(matcha.dictDir, "matcha dictDir")
+    }
+    if (hasKokoro) {
+      Log.i(TAG, "  Validating Kokoro: model=${kokoro.model} voices=${kokoro.voices} tokens=${kokoro.tokens} dataDir=${kokoro.dataDir}")
+      requireFile(kokoro.model, "kokoro model")
+      if (kokoro.voices.isNotBlank()) requireFile(kokoro.voices, "kokoro voices")
+      if (kokoro.tokens.isNotBlank()) requireFile(kokoro.tokens, "kokoro tokens")
+      if (kokoro.dataDir.isNotBlank()) requireDir(kokoro.dataDir, "kokoro dataDir")
+      if (kokoro.dictDir.isNotBlank()) requireDir(kokoro.dictDir, "kokoro dictDir")
+    }
+    if (hasZipVoice) {
+      Log.i(TAG, "  Validating ZipVoice: encoder=${zipvoice.encoder} decoder=${zipvoice.decoder} vocoder=${zipvoice.vocoder}")
+      requireFile(zipvoice.encoder, "zipvoice encoder")
+      requireFile(zipvoice.decoder, "zipvoice decoder")
+      requireFile(zipvoice.vocoder, "zipvoice vocoder")
+      if (zipvoice.tokens.isNotBlank()) requireFile(zipvoice.tokens, "zipvoice tokens")
+      if (zipvoice.dataDir.isNotBlank()) requireDir(zipvoice.dataDir, "zipvoice dataDir")
+    }
+    if (hasKitten) {
+      Log.i(TAG, "  Validating Kitten: model=${kitten.model} voices=${kitten.voices} tokens=${kitten.tokens}")
+      requireFile(kitten.model, "kitten model")
+      if (kitten.voices.isNotBlank()) requireFile(kitten.voices, "kitten voices")
+      if (kitten.tokens.isNotBlank()) requireFile(kitten.tokens, "kitten tokens")
+      if (kitten.dataDir.isNotBlank()) requireDir(kitten.dataDir, "kitten dataDir")
+    }
+    if (hasPocket) {
+      Log.i(TAG, "  Validating Pocket: lmMain=${pocket.lmMain} lmFlow=${pocket.lmFlow}")
+      requireFile(pocket.lmMain, "pocket lmMain")
+      requireFile(pocket.lmFlow, "pocket lmFlow")
+      requireFile(pocket.encoder, "pocket encoder")
+      requireFile(pocket.decoder, "pocket decoder")
+      requireFile(pocket.textConditioner, "pocket textConditioner")
+      if (pocket.vocabJson.isNotBlank()) requireFile(pocket.vocabJson, "pocket vocabJson")
+      if (pocket.tokenScoresJson.isNotBlank()) requireFile(pocket.tokenScoresJson, "pocket tokenScoresJson")
+    }
+    if (hasSupertonic) {
+      Log.i(TAG, "  Validating Supertonic: textEncoder=${supertonic.textEncoder}")
+      requireFile(supertonic.textEncoder, "supertonic textEncoder")
+      requireFile(supertonic.durationPredictor, "supertonic durationPredictor")
+      requireFile(supertonic.vectorEstimator, "supertonic vectorEstimator")
+      requireFile(supertonic.vocoder, "supertonic vocoder")
+      if (supertonic.ttsJson.isNotBlank()) requireFile(supertonic.ttsJson, "supertonic ttsJson")
+      if (supertonic.unicodeIndexer.isNotBlank()) requireFile(supertonic.unicodeIndexer, "supertonic unicodeIndexer")
+    }
+
+    Log.i(TAG, "TTS config validated OK")
+  }
+
+  @Suppress("UNCHECKED_CAST")
+  private fun buildOfflineTtsConfig(config: Map<String, Any?>): OfflineTtsConfig {
+    val modelMap = config["model"] as? Map<String, Any?> ?: emptyMap()
+
+    val vitsMap = modelMap["vits"] as? Map<String, Any?> ?: emptyMap()
+    val matchaMap = modelMap["matcha"] as? Map<String, Any?> ?: emptyMap()
+    val kokoroMap = modelMap["kokoro"] as? Map<String, Any?> ?: emptyMap()
+    val zipvoiceMap = modelMap["zipvoice"] as? Map<String, Any?> ?: emptyMap()
+    val kittenMap = modelMap["kitten"] as? Map<String, Any?> ?: emptyMap()
+    val pocketMap = modelMap["pocket"] as? Map<String, Any?> ?: emptyMap()
+    val supertonicMap = modelMap["supertonic"] as? Map<String, Any?> ?: emptyMap()
+
+    return OfflineTtsConfig(
+      model = OfflineTtsModelConfig(
+        vits = OfflineTtsVitsModelConfig(
+          model = vitsMap["model"] as? String ?: "",
+          lexicon = vitsMap["lexicon"] as? String ?: "",
+          tokens = vitsMap["tokens"] as? String ?: "",
+          dataDir = vitsMap["dataDir"] as? String ?: "",
+          dictDir = vitsMap["dictDir"] as? String ?: "",
+          noiseScale = (vitsMap["noiseScale"] as? Number)?.toFloat() ?: 0.667f,
+          noiseScaleW = (vitsMap["noiseScaleW"] as? Number)?.toFloat() ?: 0.8f,
+          lengthScale = (vitsMap["lengthScale"] as? Number)?.toFloat() ?: 1.0f,
+        ),
+        matcha = OfflineTtsMatchaModelConfig(
+          acousticModel = matchaMap["acousticModel"] as? String ?: "",
+          vocoder = matchaMap["vocoder"] as? String ?: "",
+          lexicon = matchaMap["lexicon"] as? String ?: "",
+          tokens = matchaMap["tokens"] as? String ?: "",
+          dataDir = matchaMap["dataDir"] as? String ?: "",
+          dictDir = matchaMap["dictDir"] as? String ?: "",
+          noiseScale = (matchaMap["noiseScale"] as? Number)?.toFloat() ?: 1.0f,
+          lengthScale = (matchaMap["lengthScale"] as? Number)?.toFloat() ?: 1.0f,
+        ),
+        kokoro = OfflineTtsKokoroModelConfig(
+          model = kokoroMap["model"] as? String ?: "",
+          voices = kokoroMap["voices"] as? String ?: "",
+          tokens = kokoroMap["tokens"] as? String ?: "",
+          dataDir = kokoroMap["dataDir"] as? String ?: "",
+          lexicon = kokoroMap["lexicon"] as? String ?: "",
+          lang = kokoroMap["lang"] as? String ?: "",
+          dictDir = kokoroMap["dictDir"] as? String ?: "",
+          lengthScale = (kokoroMap["lengthScale"] as? Number)?.toFloat() ?: 1.0f,
+        ),
+        zipvoice = OfflineTtsZipVoiceModelConfig(
+          tokens = zipvoiceMap["tokens"] as? String ?: "",
+          encoder = zipvoiceMap["encoder"] as? String ?: "",
+          decoder = zipvoiceMap["decoder"] as? String ?: "",
+          vocoder = zipvoiceMap["vocoder"] as? String ?: "",
+          dataDir = zipvoiceMap["dataDir"] as? String ?: "",
+          lexicon = zipvoiceMap["lexicon"] as? String ?: "",
+          featScale = (zipvoiceMap["featScale"] as? Number)?.toFloat() ?: 0.1f,
+          tShift = (zipvoiceMap["tShift"] as? Number)?.toFloat() ?: 0.5f,
+          targetRms = (zipvoiceMap["targetRms"] as? Number)?.toFloat() ?: 0.1f,
+          guidanceScale = (zipvoiceMap["guidanceScale"] as? Number)?.toFloat() ?: 1.0f,
+        ),
+        kitten = OfflineTtsKittenModelConfig(
+          model = kittenMap["model"] as? String ?: "",
+          voices = kittenMap["voices"] as? String ?: "",
+          tokens = kittenMap["tokens"] as? String ?: "",
+          dataDir = kittenMap["dataDir"] as? String ?: "",
+          lengthScale = (kittenMap["lengthScale"] as? Number)?.toFloat() ?: 1.0f,
+        ),
+        pocket = OfflineTtsPocketModelConfig(
+          lmFlow = pocketMap["lmFlow"] as? String ?: "",
+          lmMain = pocketMap["lmMain"] as? String ?: "",
+          encoder = pocketMap["encoder"] as? String ?: "",
+          decoder = pocketMap["decoder"] as? String ?: "",
+          textConditioner = pocketMap["textConditioner"] as? String ?: "",
+          vocabJson = pocketMap["vocabJson"] as? String ?: "",
+          tokenScoresJson = pocketMap["tokenScoresJson"] as? String ?: "",
+          voiceEmbeddingCacheCapacity = (pocketMap["voiceEmbeddingCacheCapacity"] as? Number)?.toInt() ?: 50,
+        ),
+        supertonic = OfflineTtsSupertonicModelConfig(
+          durationPredictor = supertonicMap["durationPredictor"] as? String ?: "",
+          textEncoder = supertonicMap["textEncoder"] as? String ?: "",
+          vectorEstimator = supertonicMap["vectorEstimator"] as? String ?: "",
+          vocoder = supertonicMap["vocoder"] as? String ?: "",
+          ttsJson = supertonicMap["ttsJson"] as? String ?: "",
+          unicodeIndexer = supertonicMap["unicodeIndexer"] as? String ?: "",
+          voiceStyle = supertonicMap["voiceStyle"] as? String ?: "",
+        ),
+        numThreads = (modelMap["numThreads"] as? Number)?.toInt() ?: 2,
+        debug = modelMap["debug"] as? Boolean ?: false,
+        provider = modelMap["provider"] as? String ?: "cpu",
+      ),
+      ruleFsts = config["ruleFsts"] as? String ?: "",
+      ruleFars = config["ruleFars"] as? String ?: "",
+      maxNumSentences = (config["maxNumSentences"] as? Number)?.toInt() ?: 1,
+      silenceScale = (config["silenceScale"] as? Number)?.toFloat() ?: 0.2f,
+    )
   }
 }

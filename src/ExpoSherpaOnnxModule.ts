@@ -6,7 +6,14 @@ import type {
   OfflineRecognizerResult,
   OnlineRecognizerResult,
   WaveData,
+  GeneratedAudio,
 } from './ExpoSherpaOnnx.types';
+
+export type TtsCreationResult = {
+  handle: number;
+  sampleRate: number;
+  numSpeakers: number;
+};
 
 export interface ExpoSherpaOnnxNativeModule {
   // Version info
@@ -75,6 +82,30 @@ export interface ExpoSherpaOnnxNativeModule {
 
   // Hardware acceleration
   getAvailableProviders(): string[];
+
+  // Offline TTS
+  createOfflineTts(
+    config: Record<string, unknown>
+  ): Promise<TtsCreationResult>;
+  offlineTtsGenerate(
+    handle: number,
+    text: string,
+    sid: number,
+    speed: number
+  ): Promise<GeneratedAudio>;
+  offlineTtsGenerateStreaming(
+    handle: number,
+    text: string,
+    sid: number,
+    speed: number,
+    requestId: string
+  ): Promise<void>;
+  offlineTtsSampleRate(handle: number): Promise<number>;
+  offlineTtsNumSpeakers(handle: number): Promise<number>;
+  destroyOfflineTts(handle: number): Promise<void>;
+
+  addListener(eventName: string): void;
+  removeListeners(count: number): void;
 }
 
 export default requireNativeModule<ExpoSherpaOnnxNativeModule>(

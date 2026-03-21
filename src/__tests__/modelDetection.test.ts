@@ -160,12 +160,27 @@ describe('detectTtsModel', () => {
     mockListModels.mockResolvedValue([
       'model.onnx',
       'tokens.txt',
-      'lexicon.txt',
     ]);
 
     const result = await detectTtsModel('/models/vits-en');
     expect(result.type).toBe('vits');
     expect(result.files.model).toBeDefined();
+    expect(result.files.lexicon).toBeUndefined();
+  });
+
+  it('detects vits with lexicon', async () => {
+    mockListModels.mockResolvedValue([
+      'vits-vctk.int8.onnx',
+      'vits-vctk.onnx',
+      'tokens.txt',
+      'lexicon.txt',
+    ]);
+
+    const result = await detectTtsModel('/models/vits-vctk');
+    expect(result.type).toBe('vits');
+    expect(result.files.model).toBeDefined();
+    expect(result.files.lexicon).toBe('lexicon.txt');
+    expect(result.tokensPath).toBe('tokens.txt');
   });
 
   it('detects kokoro (voices.bin present)', async () => {

@@ -1,11 +1,22 @@
 import ExpoModulesCore
 import csherpa
 
+private class TtsStreamingContext {
+  let module: ExpoSherpaOnnxModule
+  let requestId: String
+
+  init(module: ExpoSherpaOnnxModule, requestId: String) {
+    self.module = module
+    self.requestId = requestId
+  }
+}
+
 public class ExpoSherpaOnnxModule: Module {
   private var handleCounter = 0
   private let lock = NSLock()
   private var offlineRecognizers: [Int: SherpaOnnxOfflineRecognizer] = [:]
   private var onlineRecognizers: [Int: SherpaOnnxRecognizer] = [:]
+  private var offlineTtsEngines: [Int: SherpaOnnxOfflineTtsWrapper] = [:]
 
   private func nextHandle() -> Int {
     lock.lock()
@@ -20,6 +31,7 @@ public class ExpoSherpaOnnxModule: Module {
     OnDestroy {
       self.offlineRecognizers.removeAll()
       self.onlineRecognizers.removeAll()
+      self.offlineTtsEngines.removeAll()
     }
 
     // MARK: - Version Info
@@ -293,6 +305,99 @@ public class ExpoSherpaOnnxModule: Module {
       #endif
       return providers
     }
+
+    Events("ttsChunk", "ttsComplete", "ttsError")
+
+    // =========================================================================
+    // Offline TTS
+    // =========================================================================
+
+    AsyncFunction("createOfflineTts") { (config: [String: Any]) -> [String: Any] in
+      try Self.validateTtsConfig(config)
+      var ttsConfig = Self.buildOfflineTtsConfig(config)
+      guard let tts = SherpaOnnxOfflineTtsWrapper(config: &ttsConfig) else {
+        throw NSError(domain: "ExpoSherpaOnnx", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create TTS engine. Check model files and paths."])
+      }
+      let handle = self.nextHandle()
+      self.lock.lock()
+      self.offlineTtsEngines[handle] = tts
+      self.lock.unlock()
+
+      let sampleRate = SherpaOnnxOfflineTtsSampleRate(tts.tts)
+      let numSpeakers = SherpaOnnxOfflineTtsNumSpeakers(tts.tts)
+
+      return [
+        "handle": handle,
+        "sampleRate": sampleRate,
+        "numSpeakers": numSpeakers,
+      ]
+    }
+
+    AsyncFunction("offlineTtsGenerate") { (handle: Int, text: String, sid: Int, speed: Double) -> [String: Any] in
+      guard let tts = self.offlineTtsEngines[handle] else {
+        throw SherpaError.invalidHandle("TTS engine", handle)
+      }
+      let audio = tts.generate(text: text, sid: sid, speed: Float(speed))
+      return [
+        "samples": audio.samples.map { Double($0) },
+        "sampleRate": Int(audio.sampleRate),
+      ]
+    }
+
+    AsyncFunction("offlineTtsSampleRate") { (handle: Int) -> Int in
+      guard let tts = self.offlineTtsEngines[handle] else {
+        throw SherpaError.invalidHandle("TTS engine", handle)
+      }
+      return Int(SherpaOnnxOfflineTtsSampleRate(tts.tts))
+    }
+
+    AsyncFunction("offlineTtsNumSpeakers") { (handle: Int) -> Int in
+      guard let tts = self.offlineTtsEngines[handle] else {
+        throw SherpaError.invalidHandle("TTS engine", handle)
+      }
+      return Int(SherpaOnnxOfflineTtsNumSpeakers(tts.tts))
+    }
+
+    AsyncFunction("destroyOfflineTts") { (handle: Int) in
+      self.lock.lock()
+      self.offlineTtsEngines.removeValue(forKey: handle)
+      self.lock.unlock()
+    }
+
+    AsyncFunction("offlineTtsGenerateStreaming") { (handle: Int, text: String, sid: Int, speed: Double, requestId: String) in
+      guard let tts = self.offlineTtsEngines[handle] else {
+        throw SherpaError.invalidHandle("TTS engine", handle)
+      }
+
+      let context = TtsStreamingContext(module: self, requestId: requestId)
+      let contextPtr = Unmanaged.passRetained(context).toOpaque()
+
+      let callback: TtsCallbackWithArg = { samplesPtr, n, arg in
+        guard let arg = arg, let samplesPtr = samplesPtr, n > 0 else { return 0 }
+        let ctx = Unmanaged<TtsStreamingContext>.fromOpaque(arg).takeUnretainedValue()
+        let buffer = UnsafeBufferPointer(start: samplesPtr, count: Int(n))
+        let array = Array(buffer).map { Double($0) }
+        ctx.module.sendEvent("ttsChunk", [
+          "requestId": ctx.requestId,
+          "samples": array,
+        ])
+        return 0
+      }
+
+      let audio = tts.generateWithCallbackWithArg(
+        text: text,
+        callback: callback,
+        arg: contextPtr,
+        sid: sid,
+        speed: Float(speed)
+      )
+      self.sendEvent("ttsComplete", [
+        "requestId": requestId,
+        "sampleRate": Int(audio.sampleRate),
+      ])
+
+      Unmanaged<TtsStreamingContext>.fromOpaque(contextPtr).release()
+    }
   }
 
   // MARK: - Path Resolution Helpers
@@ -441,6 +546,215 @@ public class ExpoSherpaOnnxModule: Module {
       ruleFsts: config["ruleFsts"] as? String ?? "",
       ruleFars: config["ruleFars"] as? String ?? "",
       blankPenalty: (config["blankPenalty"] as? NSNumber)?.floatValue ?? 0.0
+    )
+  }
+
+  private static func requireTtsFile(_ path: String, label: String) throws {
+    guard !path.isEmpty else {
+      throw NSError(domain: "ExpoSherpaOnnx", code: -1, userInfo: [NSLocalizedDescriptionKey: "\(label) path is empty. Check your model config."])
+    }
+    let fm = FileManager.default
+    guard fm.fileExists(atPath: path) else {
+      throw NSError(domain: "ExpoSherpaOnnx", code: -1, userInfo: [NSLocalizedDescriptionKey: "\(label) not found: \(path)"])
+    }
+    if let attrs = try? fm.attributesOfItem(atPath: path),
+       let size = attrs[.size] as? UInt64, size == 0 {
+      throw NSError(domain: "ExpoSherpaOnnx", code: -1, userInfo: [NSLocalizedDescriptionKey: "\(label) is empty (0 bytes): \(path)"])
+    }
+  }
+
+  private static func validateTtsConfig(_ config: [String: Any]) throws {
+    let modelMap = config["model"] as? [String: Any] ?? [:]
+    let vitsMap = modelMap["vits"] as? [String: Any] ?? [:]
+    let matchaMap = modelMap["matcha"] as? [String: Any] ?? [:]
+    let kokoroMap = modelMap["kokoro"] as? [String: Any] ?? [:]
+    let zipvoiceMap = modelMap["zipvoice"] as? [String: Any] ?? [:]
+    let kittenMap = modelMap["kitten"] as? [String: Any] ?? [:]
+    let pocketMap = modelMap["pocket"] as? [String: Any] ?? [:]
+    let supertonicMap = modelMap["supertonic"] as? [String: Any] ?? [:]
+
+    let vitsModel = vitsMap["model"] as? String ?? ""
+    let matchaAcoustic = matchaMap["acousticModel"] as? String ?? ""
+    let kokoroModel = kokoroMap["model"] as? String ?? ""
+    let zipvoiceEncoder = zipvoiceMap["encoder"] as? String ?? ""
+    let kittenModel = kittenMap["model"] as? String ?? ""
+    let pocketLmMain = pocketMap["lmMain"] as? String ?? ""
+    let supertonicTextEncoder = supertonicMap["textEncoder"] as? String ?? ""
+
+    let hasVits = !vitsModel.isEmpty
+    let hasMatcha = !matchaAcoustic.isEmpty
+    let hasKokoro = !kokoroModel.isEmpty
+    let hasZipVoice = !zipvoiceEncoder.isEmpty
+    let hasKitten = !kittenModel.isEmpty
+    let hasPocket = !pocketLmMain.isEmpty
+    let hasSupertonic = !supertonicTextEncoder.isEmpty
+
+    if !hasVits && !hasMatcha && !hasKokoro && !hasZipVoice && !hasKitten && !hasPocket && !hasSupertonic {
+      throw NSError(domain: "ExpoSherpaOnnx", code: -1, userInfo: [NSLocalizedDescriptionKey: "No TTS model files specified. Provide at least one model type (vits, matcha, kokoro, zipvoice, kitten, pocket, or supertonic)."])
+    }
+
+    if hasVits {
+      try requireTtsFile(vitsModel, label: "vits model")
+      let tokens = vitsMap["tokens"] as? String ?? ""
+      if !tokens.isEmpty { try requireTtsFile(tokens, label: "vits tokens") }
+      let lexicon = vitsMap["lexicon"] as? String ?? ""
+      if !lexicon.isEmpty { try requireTtsFile(lexicon, label: "vits lexicon") }
+    }
+    if hasMatcha {
+      try requireTtsFile(matchaAcoustic, label: "matcha acousticModel")
+      let vocoder = matchaMap["vocoder"] as? String ?? ""
+      try requireTtsFile(vocoder, label: "matcha vocoder")
+      let tokens = matchaMap["tokens"] as? String ?? ""
+      if !tokens.isEmpty { try requireTtsFile(tokens, label: "matcha tokens") }
+    }
+    if hasKokoro {
+      try requireTtsFile(kokoroModel, label: "kokoro model")
+      let voices = kokoroMap["voices"] as? String ?? ""
+      if !voices.isEmpty { try requireTtsFile(voices, label: "kokoro voices") }
+      let tokens = kokoroMap["tokens"] as? String ?? ""
+      if !tokens.isEmpty { try requireTtsFile(tokens, label: "kokoro tokens") }
+    }
+    if hasZipVoice {
+      try requireTtsFile(zipvoiceEncoder, label: "zipvoice encoder")
+      let decoder = zipvoiceMap["decoder"] as? String ?? ""
+      try requireTtsFile(decoder, label: "zipvoice decoder")
+      let vocoder = zipvoiceMap["vocoder"] as? String ?? ""
+      try requireTtsFile(vocoder, label: "zipvoice vocoder")
+    }
+    if hasKitten {
+      try requireTtsFile(kittenModel, label: "kitten model")
+      let voices = kittenMap["voices"] as? String ?? ""
+      if !voices.isEmpty { try requireTtsFile(voices, label: "kitten voices") }
+    }
+    if hasPocket {
+      try requireTtsFile(pocketLmMain, label: "pocket lmMain")
+      let lmFlow = pocketMap["lmFlow"] as? String ?? ""
+      try requireTtsFile(lmFlow, label: "pocket lmFlow")
+      let encoder = pocketMap["encoder"] as? String ?? ""
+      try requireTtsFile(encoder, label: "pocket encoder")
+      let decoder = pocketMap["decoder"] as? String ?? ""
+      try requireTtsFile(decoder, label: "pocket decoder")
+      let textConditioner = pocketMap["textConditioner"] as? String ?? ""
+      try requireTtsFile(textConditioner, label: "pocket textConditioner")
+    }
+    if hasSupertonic {
+      try requireTtsFile(supertonicTextEncoder, label: "supertonic textEncoder")
+      let durationPredictor = supertonicMap["durationPredictor"] as? String ?? ""
+      try requireTtsFile(durationPredictor, label: "supertonic durationPredictor")
+      let vectorEstimator = supertonicMap["vectorEstimator"] as? String ?? ""
+      try requireTtsFile(vectorEstimator, label: "supertonic vectorEstimator")
+      let vocoder = supertonicMap["vocoder"] as? String ?? ""
+      try requireTtsFile(vocoder, label: "supertonic vocoder")
+    }
+
+    NSLog("[ExpoSherpaOnnx] TTS config validated OK")
+  }
+
+  private static func buildOfflineTtsConfig(_ config: [String: Any]) -> SherpaOnnxOfflineTtsConfig {
+    let modelMap = config["model"] as? [String: Any] ?? [:]
+
+    let vitsMap = modelMap["vits"] as? [String: Any] ?? [:]
+    let matchaMap = modelMap["matcha"] as? [String: Any] ?? [:]
+    let kokoroMap = modelMap["kokoro"] as? [String: Any] ?? [:]
+    let zipvoiceMap = modelMap["zipvoice"] as? [String: Any] ?? [:]
+    let kittenMap = modelMap["kitten"] as? [String: Any] ?? [:]
+    let pocketMap = modelMap["pocket"] as? [String: Any] ?? [:]
+    let supertonicMap = modelMap["supertonic"] as? [String: Any] ?? [:]
+
+    let vits = sherpaOnnxOfflineTtsVitsModelConfig(
+      model: vitsMap["model"] as? String ?? "",
+      lexicon: vitsMap["lexicon"] as? String ?? "",
+      tokens: vitsMap["tokens"] as? String ?? "",
+      dataDir: vitsMap["dataDir"] as? String ?? "",
+      noiseScale: Float(vitsMap["noiseScale"] as? Double ?? 0.667),
+      noiseScaleW: Float(vitsMap["noiseScaleW"] as? Double ?? 0.8),
+      lengthScale: Float(vitsMap["lengthScale"] as? Double ?? 1.0),
+      dictDir: vitsMap["dictDir"] as? String ?? ""
+    )
+
+    let matcha = sherpaOnnxOfflineTtsMatchaModelConfig(
+      acousticModel: matchaMap["acousticModel"] as? String ?? "",
+      vocoder: matchaMap["vocoder"] as? String ?? "",
+      lexicon: matchaMap["lexicon"] as? String ?? "",
+      tokens: matchaMap["tokens"] as? String ?? "",
+      dataDir: matchaMap["dataDir"] as? String ?? "",
+      noiseScale: Float(matchaMap["noiseScale"] as? Double ?? 0.667),
+      lengthScale: Float(matchaMap["lengthScale"] as? Double ?? 1.0),
+      dictDir: matchaMap["dictDir"] as? String ?? ""
+    )
+
+    let kokoro = sherpaOnnxOfflineTtsKokoroModelConfig(
+      model: kokoroMap["model"] as? String ?? "",
+      voices: kokoroMap["voices"] as? String ?? "",
+      tokens: kokoroMap["tokens"] as? String ?? "",
+      dataDir: kokoroMap["dataDir"] as? String ?? "",
+      lengthScale: Float(kokoroMap["lengthScale"] as? Double ?? 1.0),
+      dictDir: kokoroMap["dictDir"] as? String ?? "",
+      lexicon: kokoroMap["lexicon"] as? String ?? "",
+      lang: kokoroMap["lang"] as? String ?? ""
+    )
+
+    let kitten = sherpaOnnxOfflineTtsKittenModelConfig(
+      model: kittenMap["model"] as? String ?? "",
+      voices: kittenMap["voices"] as? String ?? "",
+      tokens: kittenMap["tokens"] as? String ?? "",
+      dataDir: kittenMap["dataDir"] as? String ?? "",
+      lengthScale: Float(kittenMap["lengthScale"] as? Double ?? 1.0)
+    )
+
+    let zipvoice = sherpaOnnxOfflineTtsZipvoiceModelConfig(
+      tokens: zipvoiceMap["tokens"] as? String ?? "",
+      encoder: zipvoiceMap["encoder"] as? String ?? "",
+      decoder: zipvoiceMap["decoder"] as? String ?? "",
+      vocoder: zipvoiceMap["vocoder"] as? String ?? "",
+      dataDir: zipvoiceMap["dataDir"] as? String ?? "",
+      lexicon: zipvoiceMap["lexicon"] as? String ?? "",
+      featScale: Float(zipvoiceMap["featScale"] as? Double ?? 0.1),
+      tShift: Float(zipvoiceMap["tShift"] as? Double ?? 0.5),
+      targetRms: Float(zipvoiceMap["targetRms"] as? Double ?? 0.1),
+      guidanceScale: Float(zipvoiceMap["guidanceScale"] as? Double ?? 1.0)
+    )
+
+    let pocket = sherpaOnnxOfflineTtsPocketModelConfig(
+      lmFlow: pocketMap["lmFlow"] as? String ?? "",
+      lmMain: pocketMap["lmMain"] as? String ?? "",
+      encoder: pocketMap["encoder"] as? String ?? "",
+      decoder: pocketMap["decoder"] as? String ?? "",
+      textConditioner: pocketMap["textConditioner"] as? String ?? "",
+      vocabJson: pocketMap["vocabJson"] as? String ?? "",
+      tokenScoresJson: pocketMap["tokenScoresJson"] as? String ?? "",
+      voiceEmbeddingCacheCapacity: pocketMap["voiceEmbeddingCacheCapacity"] as? Int ?? 50
+    )
+
+    let supertonic = sherpaOnnxOfflineTtsSupertonicModelConfig(
+      durationPredictor: supertonicMap["durationPredictor"] as? String ?? "",
+      textEncoder: supertonicMap["textEncoder"] as? String ?? "",
+      vectorEstimator: supertonicMap["vectorEstimator"] as? String ?? "",
+      vocoder: supertonicMap["vocoder"] as? String ?? "",
+      ttsJson: supertonicMap["ttsJson"] as? String ?? "",
+      unicodeIndexer: supertonicMap["unicodeIndexer"] as? String ?? "",
+      voiceStyle: supertonicMap["voiceStyle"] as? String ?? ""
+    )
+
+    let model = sherpaOnnxOfflineTtsModelConfig(
+      vits: vits,
+      matcha: matcha,
+      kokoro: kokoro,
+      numThreads: modelMap["numThreads"] as? Int ?? 2,
+      debug: (modelMap["debug"] as? Bool ?? false) ? 1 : 0,
+      provider: modelMap["provider"] as? String ?? "cpu",
+      kitten: kitten,
+      zipvoice: zipvoice,
+      pocket: pocket,
+      supertonic: supertonic
+    )
+
+    return sherpaOnnxOfflineTtsConfig(
+      model: model,
+      ruleFsts: config["ruleFsts"] as? String ?? "",
+      ruleFars: config["ruleFars"] as? String ?? "",
+      maxNumSentences: config["maxNumSentences"] as? Int ?? 1,
+      silenceScale: Float(config["silenceScale"] as? Double ?? 0.2)
     )
   }
 }

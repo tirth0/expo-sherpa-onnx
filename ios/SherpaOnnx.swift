@@ -1292,10 +1292,12 @@ class SherpaOnnxOfflineTtsWrapper {
   let tts: OpaquePointer!
 
   /// Constructor taking a model config
-  init(
+  init?(
     config: UnsafePointer<SherpaOnnxOfflineTtsConfig>!
   ) {
-    tts = SherpaOnnxCreateOfflineTts(config)
+    let ptr = SherpaOnnxCreateOfflineTts(config)
+    guard ptr != nil else { return nil }
+    tts = ptr
   }
 
   deinit {

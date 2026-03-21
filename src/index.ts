@@ -3,3 +3,4 @@ export * from './ExpoSherpaOnnx.types';
 export * from './utils';
 export * from './modelDetection';
 export * from './stt';
+export * from './tts';

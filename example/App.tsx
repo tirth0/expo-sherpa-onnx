@@ -19,6 +19,7 @@ import ExpoSherpaOnnx, {
   detectTtsModel,
   createSTT,
   createStreamingSTT,
+  createTTS,
   readWaveFile,
   getAvailableProviders,
 } from 'expo-sherpa-onnx';
@@ -30,8 +31,9 @@ import type {
   OfflineRecognizerConfig,
   OnlineRecognizerConfig,
   OfflineRecognizerResult,
+  OfflineTtsConfig,
 } from 'expo-sherpa-onnx';
-import type { OnlineSTTEngine, OnlineSTTStream } from 'expo-sherpa-onnx';
+import type { OnlineSTTEngine, OnlineSTTStream, OfflineTTSEngine } from 'expo-sherpa-onnx';
 import {
   ScrollView,
   Text,
@@ -65,16 +67,123 @@ function base64ToFloat32(base64: string): number[] {
 }
 
 // =============================================================================
+// Audio playback helpers
+// =============================================================================
+
+const SUPPORTED_RATES = [16000, 44100, 48000] as const;
+
+function pickPlaybackRate(sampleRate: number): number {
+  if ((SUPPORTED_RATES as readonly number[]).includes(sampleRate)) return sampleRate;
+  // Prefer an integer multiple (e.g. 22050 → 44100)
+  for (const r of SUPPORTED_RATES) {
+    if (r % sampleRate === 0 || sampleRate % r === 0) return r;
+  }
+  return 44100;
+}
+
+function resampleNearest(samples: number[], srcRate: number, dstRate: number): number[] {
+  if (srcRate === dstRate) return samples;
+  const ratio = dstRate / srcRate;
+  const outLen = Math.round(samples.length * ratio);
+  const out = new Array<number>(outLen);
+  for (let i = 0; i < outLen; i++) {
+    out[i] = samples[Math.min(Math.floor(i / ratio), samples.length - 1)];
+  }
+  return out;
+}
+
+function float32ToPcm16Base64(samples: number[]): string {
+  const buffer = new ArrayBuffer(samples.length * 2);
+  const view = new DataView(buffer);
+  for (let i = 0; i < samples.length; i++) {
+    const clamped = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(i * 2, clamped < 0 ? clamped * 0x8000 : clamped * 0x7FFF, true);
+  }
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+const PLAY_CHUNK_SIZE = 4096;
+let activeTurnId: string | null = null;
+
+async function playTtsAudio(samples: number[], sampleRate: number): Promise<void> {
+  const targetRate = pickPlaybackRate(sampleRate);
+  const resampled = resampleNearest(samples, sampleRate, targetRate);
+  const turnId = `tts-play-${Date.now()}`;
+  activeTurnId = turnId;
+
+  await ExpoPlayAudioStream.startBufferedAudioStream({
+    turnId,
+    encoding: 'pcm_s16le',
+  });
+
+  for (let offset = 0; offset < resampled.length; offset += PLAY_CHUNK_SIZE) {
+    if (activeTurnId !== turnId) break;
+    const chunk = resampled.slice(offset, offset + PLAY_CHUNK_SIZE);
+    const pcmBase64 = float32ToPcm16Base64(chunk);
+    const isFirst = offset === 0;
+    const isFinal = offset + PLAY_CHUNK_SIZE >= resampled.length;
+    await ExpoPlayAudioStream.playAudioBuffered(pcmBase64, turnId, isFirst, isFinal);
+  }
+}
+
+async function stopTtsAudio(): Promise<void> {
+  const turnId = activeTurnId;
+  activeTurnId = null;
+  if (turnId) {
+    try { await ExpoPlayAudioStream.stopBufferedAudioStream(turnId); } catch (_) {}
+  }
+  try { await ExpoPlayAudioStream.stopAudio(); } catch (_) {}
+}
+
+async function startTtsStream(sampleRate: number): Promise<string> {
+  const targetRate = pickPlaybackRate(sampleRate);
+  const turnId = `tts-stream-${Date.now()}`;
+  activeTurnId = turnId;
+  await ExpoPlayAudioStream.startBufferedAudioStream({
+    turnId,
+    encoding: 'pcm_s16le',
+  });
+  return turnId;
+}
+
+async function feedTtsChunk(
+  turnId: string,
+  chunkSamples: number[],
+  srcRate: number,
+  dstRate: number,
+  isFirst: boolean
+): Promise<void> {
+  if (activeTurnId !== turnId) return;
+  const resampled = resampleNearest(chunkSamples, srcRate, dstRate);
+  const pcmBase64 = float32ToPcm16Base64(resampled);
+  await ExpoPlayAudioStream.playAudioBuffered(pcmBase64, turnId, isFirst, false);
+}
+
+async function finishTtsStream(turnId: string): Promise<void> {
+  if (activeTurnId !== turnId) return;
+  const silence = float32ToPcm16Base64([0, 0, 0, 0]);
+  await ExpoPlayAudioStream.playAudioBuffered(silence, turnId, false, true);
+  activeTurnId = null;
+}
+
+// =============================================================================
 // Tab Navigation
 // =============================================================================
 
-type TabName = 'build' | 'models' | 'offlineASR' | 'streamingASR' | 'accel';
+type TabName = 'build' | 'models' | 'offlineASR' | 'streamingASR' | 'offlineTTS' | 'streamingTTS' | 'accel';
 
 const TABS: { key: TabName; label: string }[] = [
   { key: 'build', label: 'Build' },
   { key: 'models', label: 'Models' },
   { key: 'offlineASR', label: 'Offline ASR' },
   { key: 'streamingASR', label: 'Stream ASR' },
+  { key: 'offlineTTS', label: 'TTS' },
+  { key: 'streamingTTS', label: 'Stream TTS' },
   { key: 'accel', label: 'Accel' },
 ];
 
@@ -1040,6 +1149,620 @@ function buildOnlineConfigFromDetection(detected: DetectedSttModel, modelDir: st
 }
 
 // =============================================================================
+// TTS Config Builder
+// =============================================================================
+
+function buildTtsConfigFromDetection(detected: DetectedTtsModel, modelDir: string): OfflineTtsConfig {
+  const tokensPath = detected.tokensPath ? `${modelDir}/${detected.tokensPath}` : `${modelDir}/tokens.txt`;
+  const f = (key: string) => detected.files[key] ? `${modelDir}/${detected.files[key]}` : '';
+
+  const base: OfflineTtsConfig = {
+    model: { numThreads: 2, debug: false, provider: 'cpu' },
+    maxNumSentences: 1,
+  };
+
+  switch (detected.type) {
+    case 'vits':
+      base.model!.vits = {
+        model: f('model'),
+        tokens: tokensPath,
+        lexicon: detected.files['lexicon'] ? f('lexicon') : '',
+        dataDir: detected.files['dataDir'] ? f('dataDir') : '',
+      };
+      break;
+    case 'matcha':
+      base.model!.matcha = {
+        acousticModel: f('acousticModel'),
+        vocoder: f('vocoder'),
+        tokens: tokensPath,
+        lexicon: detected.files['lexicon'] ? f('lexicon') : '',
+        dataDir: detected.files['dataDir'] ? f('dataDir') : '',
+      };
+      break;
+    case 'kokoro':
+      base.model!.kokoro = {
+        model: f('model'),
+        voices: f('voices'),
+        tokens: tokensPath,
+        dataDir: detected.files['dataDir'] ? f('dataDir') : '',
+        lexicon: detected.files['lexicon'] ? f('lexicon') : '',
+      };
+      break;
+    case 'kitten':
+      base.model!.kitten = {
+        model: f('model'),
+        voices: f('voices'),
+        tokens: tokensPath,
+        dataDir: detected.files['dataDir'] ? f('dataDir') : '',
+      };
+      break;
+    case 'zipvoice':
+      base.model!.zipvoice = {
+        encoder: f('encoder'),
+        decoder: f('decoder'),
+        vocoder: f('vocoder'),
+        tokens: tokensPath,
+        dataDir: detected.files['dataDir'] ? f('dataDir') : '',
+        lexicon: detected.files['lexicon'] ? f('lexicon') : '',
+      };
+      break;
+    case 'pocket':
+      base.model!.pocket = {
+        lmFlow: f('lmFlow'),
+        lmMain: f('lmMain'),
+        encoder: f('encoder'),
+        decoder: f('decoder'),
+        textConditioner: f('textConditioner'),
+        vocabJson: f('vocabJson'),
+        tokenScoresJson: f('tokenScoresJson'),
+      };
+      break;
+    case 'supertonic':
+      base.model!.supertonic = {
+        durationPredictor: f('durationPredictor'),
+        textEncoder: f('textEncoder'),
+        vectorEstimator: f('vectorEstimator'),
+        vocoder: f('vocoder'),
+        ttsJson: f('ttsJson'),
+        unicodeIndexer: f('unicodeIndexer'),
+        voiceStyle: f('voiceStyle'),
+      };
+      break;
+  }
+  return base;
+}
+
+// =============================================================================
+// Offline TTS Screen
+// =============================================================================
+
+function OfflineTTSScreen() {
+  const appPaths =
+    typeof ExpoSherpaOnnx.getAppPaths === 'function'
+      ? ExpoSherpaOnnx.getAppPaths()
+      : { modelsDir: '' };
+
+  const subdirs = useModelSubdirs(appPaths.modelsDir);
+  const [modelDir, setModelDir] = useState('');
+  const [text, setText] = useState('Hello, this is a test of text to speech synthesis.');
+  const [sid, setSid] = useState('0');
+  const [speed, setSpeed] = useState('1.0');
+  const [loading, setLoading] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+  const [detected, setDetected] = useState<DetectedTtsModel | null>(null);
+  const engineRef = useRef<OfflineTTSEngine | null>(null);
+  const lastAudioRef = useRef<{ samples: number[]; sampleRate: number } | null>(null);
+
+  useEffect(() => {
+    if (!modelDir && subdirs.length > 0) {
+      const ttsModel = subdirs.find((d) => /vits|kokoro|piper|matcha|pocket|kitten/i.test(d));
+      if (ttsModel) setModelDir(`${appPaths.modelsDir}/${ttsModel}`);
+    }
+  }, [subdirs, modelDir, appPaths.modelsDir]);
+
+  useEffect(() => {
+    return () => {
+      engineRef.current?.destroy().catch(() => { });
+      stopTtsAudio();
+    };
+  }, []);
+
+  const handleDetect = useCallback(async () => {
+    if (!modelDir.trim()) {
+      setError('Please enter a model directory');
+      return;
+    }
+    setError(null);
+    setDetected(null);
+    try {
+      const d = await detectTtsModel(modelDir.trim());
+      setDetected(d);
+    } catch (e: any) {
+      setError(e.message);
+    }
+  }, [modelDir]);
+
+  const handlePlay = useCallback(async () => {
+    const audio = lastAudioRef.current;
+    if (!audio) return;
+    try {
+      setPlaying(true);
+      await playTtsAudio(audio.samples, audio.sampleRate);
+    } catch (e: any) {
+      setError(`Playback error: ${e.message}`);
+    } finally {
+      setPlaying(false);
+    }
+  }, []);
+
+  const handleStop = useCallback(async () => {
+    await stopTtsAudio();
+    setPlaying(false);
+  }, []);
+
+  const handleGenerate = useCallback(async () => {
+    if (!modelDir.trim()) {
+      setError('Please enter a model directory');
+      return;
+    }
+    if (!text.trim()) {
+      setError('Please enter text to synthesize');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    lastAudioRef.current = null;
+    try {
+      if (engineRef.current) {
+        await engineRef.current.destroy();
+        engineRef.current = null;
+      }
+
+      let det = detected;
+      if (!det) {
+        det = await detectTtsModel(modelDir.trim());
+        setDetected(det);
+      }
+
+      const config = buildTtsConfigFromDetection(det, modelDir.trim());
+      const engine = await createTTS(config);
+      engineRef.current = engine;
+
+      const startTime = Date.now();
+      const audio = await engine.generate(text.trim(), parseInt(sid) || 0, parseFloat(speed) || 1.0);
+      const elapsed = Date.now() - startTime;
+
+      lastAudioRef.current = { samples: [...audio.samples], sampleRate: audio.sampleRate };
+
+      const duration = audio.samples.length / audio.sampleRate;
+      setResult(
+        `Generated ${audio.samples.length} samples at ${audio.sampleRate} Hz\n` +
+        `Duration: ${duration.toFixed(2)}s | Time: ${elapsed}ms\n` +
+        `Speakers: ${engine.numSpeakers} | SID: ${sid}\n` +
+        `Speed: ${speed}x | RTF: ${(elapsed / 1000 / duration).toFixed(3)}`
+      );
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [modelDir, text, sid, speed, detected]);
+
+  return (
+    <View style={styles.card}>
+      <Text style={styles.sectionTitle}>Offline TTS (Batch)</Text>
+
+      <Text style={styles.cardLabel}>Model Directory</Text>
+      {subdirs.length > 0 && (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+          {subdirs.map((d) => (
+            <TouchableOpacity
+              key={d}
+              style={[styles.radio, modelDir.endsWith(d) && styles.radioActive]}
+              onPress={() => setModelDir(`${appPaths.modelsDir}/${d}`)}
+            >
+              <Text style={[styles.radioText, modelDir.endsWith(d) && styles.radioTextActive]} numberOfLines={1}>{d}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+      <TextInput
+        style={styles.input}
+        placeholder="Path to TTS model directory"
+        value={modelDir}
+        onChangeText={setModelDir}
+        autoCapitalize="none"
+        autoCorrect={false}
+      />
+
+      <View style={styles.buttonRow}>
+        <TouchableOpacity style={styles.button} onPress={handleDetect}>
+          <Text style={styles.buttonText}>Detect Model</Text>
+        </TouchableOpacity>
+      </View>
+
+      {detected && (
+        <View style={styles.detectResult}>
+          <Text style={styles.detectType}>Type: {detected.type}</Text>
+          <Text style={styles.pathLabel}>Files:</Text>
+          {Object.entries(detected.files).map(([k, v]) => (
+            <Text key={k} style={styles.pathValue}>{k}: {v}</Text>
+          ))}
+        </View>
+      )}
+
+      <Text style={[styles.cardLabel, { marginTop: 12 }]}>Text to Synthesize</Text>
+      <TextInput
+        style={[styles.input, { height: 80, textAlignVertical: 'top' }]}
+        placeholder="Enter text..."
+        value={text}
+        onChangeText={setText}
+        multiline
+      />
+
+      <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.cardLabel}>Speaker ID</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="0"
+            value={sid}
+            onChangeText={setSid}
+            keyboardType="numeric"
+          />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.cardLabel}>Speed</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="1.0"
+            value={speed}
+            onChangeText={setSpeed}
+            keyboardType="decimal-pad"
+          />
+        </View>
+      </View>
+
+      <TouchableOpacity
+        style={[styles.button, { marginTop: 12 }, loading && { opacity: 0.6 }]}
+        onPress={handleGenerate}
+        disabled={loading || playing}
+      >
+        {loading ? (
+          <ActivityIndicator color="#fff" size="small" />
+        ) : (
+          <Text style={styles.buttonText}>Generate Speech</Text>
+        )}
+      </TouchableOpacity>
+
+      {lastAudioRef.current && (
+        <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
+          <TouchableOpacity
+            style={[styles.button, { flex: 1, backgroundColor: '#059669' }, playing && { opacity: 0.6 }]}
+            onPress={handlePlay}
+            disabled={loading || playing}
+          >
+            <Text style={styles.buttonText}>{playing ? 'Playing...' : 'Play Audio'}</Text>
+          </TouchableOpacity>
+          {playing && (
+            <TouchableOpacity
+              style={[styles.button, { flex: 1 }, styles.buttonDanger]}
+              onPress={handleStop}
+            >
+              <Text style={styles.buttonText}>Stop</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {error && <Text style={styles.errorText}>{error}</Text>}
+      {result && <Text style={styles.resultText}>{result}</Text>}
+    </View>
+  );
+}
+
+// =============================================================================
+// Streaming TTS Screen
+// =============================================================================
+
+function StreamingTTSScreen() {
+  const appPaths =
+    typeof ExpoSherpaOnnx.getAppPaths === 'function'
+      ? ExpoSherpaOnnx.getAppPaths()
+      : { modelsDir: '' };
+
+  const subdirs = useModelSubdirs(appPaths.modelsDir);
+  const [modelDir, setModelDir] = useState('');
+  const [text, setText] = useState('This is a streaming text to speech test. Each chunk of audio is delivered as it is generated, allowing playback to begin before the full synthesis is complete.');
+  const [sid, setSid] = useState('0');
+  const [speed, setSpeed] = useState('1.0');
+  const [loading, setLoading] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+  const [chunkCount, setChunkCount] = useState(0);
+  const [totalSamples, setTotalSamples] = useState(0);
+  const [detected, setDetected] = useState<DetectedTtsModel | null>(null);
+  const engineRef = useRef<OfflineTTSEngine | null>(null);
+  const lastAudioRef = useRef<{ samples: number[]; sampleRate: number } | null>(null);
+  const accumulatedSamplesRef = useRef<number[]>([]);
+
+  useEffect(() => {
+    if (!modelDir && subdirs.length > 0) {
+      const ttsModel = subdirs.find((d) => /vits|kokoro|piper|matcha|pocket|kitten/i.test(d));
+      if (ttsModel) setModelDir(`${appPaths.modelsDir}/${ttsModel}`);
+    }
+  }, [subdirs, modelDir, appPaths.modelsDir]);
+
+  useEffect(() => {
+    return () => {
+      engineRef.current?.destroy().catch(() => { });
+      stopTtsAudio();
+    };
+  }, []);
+
+  const handleDetect = useCallback(async () => {
+    if (!modelDir.trim()) {
+      setError('Please enter a model directory');
+      return;
+    }
+    setError(null);
+    setDetected(null);
+    try {
+      const d = await detectTtsModel(modelDir.trim());
+      setDetected(d);
+    } catch (e: any) {
+      setError(e.message);
+    }
+  }, [modelDir]);
+
+  const handlePlay = useCallback(async () => {
+    const audio = lastAudioRef.current;
+    if (!audio) return;
+    try {
+      setPlaying(true);
+      await playTtsAudio(audio.samples, audio.sampleRate);
+    } catch (e: any) {
+      setError(`Playback error: ${e.message}`);
+    } finally {
+      setPlaying(false);
+    }
+  }, []);
+
+  const handleStop = useCallback(async () => {
+    await stopTtsAudio();
+    setPlaying(false);
+  }, []);
+
+  const streamTurnRef = useRef<string | null>(null);
+  const streamTargetRateRef = useRef(44100);
+
+  const handleStreamGenerate = useCallback(async () => {
+    if (!modelDir.trim()) {
+      setError('Please enter a model directory');
+      return;
+    }
+    if (!text.trim()) {
+      setError('Please enter text to synthesize');
+      return;
+    }
+    setLoading(true);
+    setPlaying(true);
+    setError(null);
+    setResult(null);
+    setChunkCount(0);
+    setTotalSamples(0);
+    lastAudioRef.current = null;
+    accumulatedSamplesRef.current = [];
+
+    let chunks = 0;
+    let samples = 0;
+    const startTime = Date.now();
+
+    try {
+      if (engineRef.current) {
+        await engineRef.current.destroy();
+        engineRef.current = null;
+      }
+      await stopTtsAudio();
+
+      let det = detected;
+      if (!det) {
+        det = await detectTtsModel(modelDir.trim());
+        setDetected(det);
+      }
+
+      const config = buildTtsConfigFromDetection(det, modelDir.trim());
+      const engine = await createTTS(config);
+      engineRef.current = engine;
+
+      const srcRate = engine.sampleRate || 22050;
+      const targetRate = pickPlaybackRate(srcRate);
+      streamTargetRateRef.current = targetRate;
+
+      const turnId = await startTtsStream(srcRate);
+      streamTurnRef.current = turnId;
+
+      await engine.generateStreaming(
+        text.trim(),
+        {
+          onChunk: (chunkSamples) => {
+            chunks++;
+            samples += chunkSamples.length;
+            accumulatedSamplesRef.current.push(...chunkSamples);
+            setChunkCount(chunks);
+            setTotalSamples(samples);
+
+            const tid = streamTurnRef.current;
+            if (tid) {
+              feedTtsChunk(tid, chunkSamples, srcRate, targetRate, chunks === 1).catch(() => {});
+            }
+          },
+          onComplete: (sampleRate) => {
+            const elapsed = Date.now() - startTime;
+            const duration = samples / sampleRate;
+            lastAudioRef.current = { samples: [...accumulatedSamplesRef.current], sampleRate };
+
+            const tid = streamTurnRef.current;
+            if (tid) {
+              finishTtsStream(tid).catch(() => {});
+              streamTurnRef.current = null;
+            }
+
+            setResult(
+              `Streaming complete!\n` +
+              `${chunks} chunks, ${samples} total samples at ${sampleRate} Hz\n` +
+              `Duration: ${duration.toFixed(2)}s | Time: ${elapsed}ms\n` +
+              `RTF: ${(elapsed / 1000 / duration).toFixed(3)}`
+            );
+          },
+          onError: (errMsg) => {
+            const tid = streamTurnRef.current;
+            if (tid) {
+              stopTtsAudio().catch(() => {});
+              streamTurnRef.current = null;
+            }
+            setError(`Streaming error: ${errMsg}`);
+          },
+        },
+        parseInt(sid) || 0,
+        parseFloat(speed) || 1.0
+      );
+    } catch (e: any) {
+      setError(e.message);
+      await stopTtsAudio();
+      streamTurnRef.current = null;
+    } finally {
+      setLoading(false);
+      setPlaying(false);
+    }
+  }, [modelDir, text, sid, speed, detected]);
+
+  return (
+    <View style={styles.card}>
+      <Text style={styles.sectionTitle}>Streaming TTS (Chunked)</Text>
+
+      <Text style={styles.cardLabel}>Model Directory</Text>
+      {subdirs.length > 0 && (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+          {subdirs.map((d) => (
+            <TouchableOpacity
+              key={d}
+              style={[styles.radio, modelDir.endsWith(d) && styles.radioActive]}
+              onPress={() => setModelDir(`${appPaths.modelsDir}/${d}`)}
+            >
+              <Text style={[styles.radioText, modelDir.endsWith(d) && styles.radioTextActive]} numberOfLines={1}>{d}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+      <TextInput
+        style={styles.input}
+        placeholder="Path to TTS model directory"
+        value={modelDir}
+        onChangeText={setModelDir}
+        autoCapitalize="none"
+        autoCorrect={false}
+      />
+
+      <View style={styles.buttonRow}>
+        <TouchableOpacity style={styles.button} onPress={handleDetect}>
+          <Text style={styles.buttonText}>Detect Model</Text>
+        </TouchableOpacity>
+      </View>
+
+      {detected && (
+        <View style={styles.detectResult}>
+          <Text style={styles.detectType}>Type: {detected.type}</Text>
+          <Text style={styles.pathLabel}>Files:</Text>
+          {Object.entries(detected.files).map(([k, v]) => (
+            <Text key={k} style={styles.pathValue}>{k}: {v}</Text>
+          ))}
+        </View>
+      )}
+
+      <Text style={[styles.cardLabel, { marginTop: 12 }]}>Text to Synthesize</Text>
+      <TextInput
+        style={[styles.input, { height: 80, textAlignVertical: 'top' }]}
+        placeholder="Enter text..."
+        value={text}
+        onChangeText={setText}
+        multiline
+      />
+
+      <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.cardLabel}>Speaker ID</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="0"
+            value={sid}
+            onChangeText={setSid}
+            keyboardType="numeric"
+          />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.cardLabel}>Speed</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="1.0"
+            value={speed}
+            onChangeText={setSpeed}
+            keyboardType="decimal-pad"
+          />
+        </View>
+      </View>
+
+      <TouchableOpacity
+        style={[styles.button, { marginTop: 12 }, loading && { opacity: 0.6 }]}
+        onPress={handleStreamGenerate}
+        disabled={loading || playing}
+      >
+        {loading ? (
+          <ActivityIndicator color="#fff" size="small" />
+        ) : (
+          <Text style={styles.buttonText}>Generate (Streaming)</Text>
+        )}
+      </TouchableOpacity>
+
+      {loading && (
+        <View style={{ marginTop: 10, backgroundColor: '#f0fdf4', padding: 10, borderRadius: 6 }}>
+          <Text style={{ fontSize: 13, color: '#2d6a4f' }}>
+            Chunks: {chunkCount} | Samples: {totalSamples}
+          </Text>
+        </View>
+      )}
+
+      {lastAudioRef.current && (
+        <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
+          <TouchableOpacity
+            style={[styles.button, { flex: 1, backgroundColor: '#059669' }, playing && { opacity: 0.6 }]}
+            onPress={handlePlay}
+            disabled={loading || playing}
+          >
+            <Text style={styles.buttonText}>{playing ? 'Playing...' : 'Play Audio'}</Text>
+          </TouchableOpacity>
+          {playing && (
+            <TouchableOpacity
+              style={[styles.button, { flex: 1 }, styles.buttonDanger]}
+              onPress={handleStop}
+            >
+              <Text style={styles.buttonText}>Stop</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {error && <Text style={styles.errorText}>{error}</Text>}
+      {result && <Text style={styles.resultText}>{result}</Text>}
+    </View>
+  );
+}
+
+// =============================================================================
 // App Root with Edge-to-Edge support
 // =============================================================================
 
@@ -1050,7 +1773,7 @@ function AppContent() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar style="light" />
-      <View style={[styles.tabBar]}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabBar} contentContainerStyle={styles.tabBarContent}>
         {TABS.map((tab) => (
           <TouchableOpacity
             key={tab.key}
@@ -1062,13 +1785,15 @@ function AppContent() {
             </Text>
           </TouchableOpacity>
         ))}
-      </View>
+      </ScrollView>
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 40 }]}>
         <Text style={styles.title}>expo-sherpa-onnx</Text>
         {activeTab === 'build' && <BuildVerificationScreen />}
         {activeTab === 'models' && <ModelManagerScreen />}
         {activeTab === 'offlineASR' && <OfflineASRScreen />}
         {activeTab === 'streamingASR' && <StreamingASRScreen />}
+        {activeTab === 'offlineTTS' && <OfflineTTSScreen />}
+        {activeTab === 'streamingTTS' && <StreamingTTSScreen />}
         {activeTab === 'accel' && <AccelerationScreen />}
       </ScrollView>
     </View>
@@ -1093,15 +1818,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#1a1a2e',
   },
   tabBar: {
-    flexDirection: 'row',
     backgroundColor: '#1a1a2e',
+    flexGrow: 0,
+  },
+  tabBarContent: {
     paddingTop: 4,
     paddingBottom: 4,
     paddingHorizontal: 4,
+    gap: 2,
   },
   tab: {
-    flex: 1,
     paddingVertical: 10,
+    paddingHorizontal: 14,
     alignItems: 'center',
     borderRadius: 8,
   },

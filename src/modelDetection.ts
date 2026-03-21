@@ -253,9 +253,10 @@ export async function detectTtsModel(
   // VITS: single model.onnx (default fallback for TTS)
   const singleModel = findFirst(onnx, /model/i) ?? onnx[0];
   if (singleModel) {
+    const lexicon = findFirst(allFiles, /\blexicon\.txt$/i);
     return {
       type: 'vits',
-      files: { model: singleModel },
+      files: { model: singleModel, ...(lexicon && { lexicon }) },
       tokensPath: tokens,
     };
   }

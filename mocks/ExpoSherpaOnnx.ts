@@ -3,6 +3,7 @@ let handleCounter = 0;
 const destroyedOfflineRecognizers = new Set<number>();
 const destroyedOnlineRecognizers = new Set<number>();
 const destroyedOnlineStreams = new Set<number>();
+const destroyedTtsEngines = new Set<number>();
 const streamToRecognizer = new Map<number, number>();
 
 export function _resetMockState() {
@@ -10,6 +11,7 @@ export function _resetMockState() {
   destroyedOfflineRecognizers.clear();
   destroyedOnlineRecognizers.clear();
   destroyedOnlineStreams.clear();
+  destroyedTtsEngines.clear();
   streamToRecognizer.clear();
 }
 
@@ -220,6 +222,50 @@ export async function destroyOnlineRecognizer(
   recognizerHandle: number
 ): Promise<void> {
   destroyedOnlineRecognizers.add(recognizerHandle);
+}
+
+// Offline TTS mocks
+
+export function _getDestroyedTts(): ReadonlySet<number> {
+  return destroyedTtsEngines;
+}
+
+export async function createOfflineTts(
+  _config: Record<string, unknown>
+): Promise<{ handle: number; sampleRate: number; numSpeakers: number }> {
+  const h = ++handleCounter;
+  return { handle: h, sampleRate: 22050, numSpeakers: 109 };
+}
+
+export async function offlineTtsGenerate(
+  handle: number,
+  _text: string,
+  _sid: number,
+  _speed: number
+) {
+  if (destroyedTtsEngines.has(handle))
+    throw new Error(`Native: TTS engine ${handle} already destroyed`);
+  return {
+    samples: [0.0, 0.1, 0.2, -0.1, 0.05, 0.0],
+    sampleRate: 22050,
+  };
+}
+
+export async function offlineTtsGenerateStreaming(
+  handle: number,
+  _text: string,
+  _sid: number,
+  _speed: number,
+  _requestId: string
+): Promise<void> {
+  if (destroyedTtsEngines.has(handle))
+    throw new Error(`Native: TTS engine ${handle} already destroyed`);
+}
+
+export async function destroyOfflineTts(
+  handle: number
+): Promise<void> {
+  destroyedTtsEngines.add(handle);
 }
 
 // Wave reading mock
