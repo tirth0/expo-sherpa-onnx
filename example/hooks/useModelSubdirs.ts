@@ -6,7 +6,7 @@ export function useModelSubdirs(modelsDir: string) {
   useEffect(() => {
     if (!modelsDir) return;
     listModelsAtPath(modelsDir, false)
-      .then((items) => setSubdirs(items.filter((f) => !f.includes('.')).sort()))
+      .then((items) => setSubdirs(items.filter((f) => !/\.\w{1,5}$/.test(f)).sort()))
       .catch(() => setSubdirs([]));
   }, [modelsDir]);
   return subdirs;

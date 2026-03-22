@@ -7,6 +7,8 @@ import type {
   OnlineRecognizerResult,
   WaveData,
   GeneratedAudio,
+  SpeechSegment,
+  KeywordSpotterResult,
 } from './ExpoSherpaOnnx.types';
 
 export type TtsCreationResult = {
@@ -103,6 +105,51 @@ export interface ExpoSherpaOnnxNativeModule {
   offlineTtsSampleRate(handle: number): Promise<number>;
   offlineTtsNumSpeakers(handle: number): Promise<number>;
   destroyOfflineTts(handle: number): Promise<void>;
+
+  // VAD
+  createVad(
+    config: Record<string, unknown>,
+    bufferSizeInSeconds: number
+  ): Promise<number>;
+  vadAcceptWaveform(handle: number, samples: number[]): Promise<void>;
+  vadEmpty(handle: number): Promise<boolean>;
+  vadIsSpeechDetected(handle: number): Promise<boolean>;
+  vadPop(handle: number): Promise<void>;
+  vadFront(handle: number): Promise<SpeechSegment>;
+  vadClear(handle: number): Promise<void>;
+  vadReset(handle: number): Promise<void>;
+  vadFlush(handle: number): Promise<void>;
+  destroyVad(handle: number): Promise<void>;
+
+  // Keyword Spotting
+  createKeywordSpotter(config: Record<string, unknown>): Promise<number>;
+  createKeywordStream(
+    spotterHandle: number,
+    keywords: string
+  ): Promise<number>;
+  keywordStreamAcceptWaveform(
+    streamHandle: number,
+    samples: number[],
+    sampleRate: number
+  ): Promise<void>;
+  keywordSpotterIsReady(
+    spotterHandle: number,
+    streamHandle: number
+  ): Promise<boolean>;
+  keywordSpotterDecode(
+    spotterHandle: number,
+    streamHandle: number
+  ): Promise<void>;
+  keywordSpotterGetResult(
+    spotterHandle: number,
+    streamHandle: number
+  ): Promise<KeywordSpotterResult>;
+  keywordSpotterReset(
+    spotterHandle: number,
+    streamHandle: number
+  ): Promise<void>;
+  destroyKeywordStream(streamHandle: number): Promise<void>;
+  destroyKeywordSpotter(spotterHandle: number): Promise<void>;
 
   addListener(eventName: string): void;
   removeListeners(count: number): void;

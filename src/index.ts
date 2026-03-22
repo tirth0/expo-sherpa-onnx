@@ -4,3 +4,5 @@ export * from './utils';
 export * from './modelDetection';
 export * from './stt';
 export * from './tts';
+export * from './vad';
+export * from './kws';

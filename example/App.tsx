@@ -10,8 +10,10 @@ import { StreamingASRScreen } from './screens/StreamingASRScreen';
 import { OfflineTTSScreen } from './screens/OfflineTTSScreen';
 import { StreamingTTSScreen } from './screens/StreamingTTSScreen';
 import { AccelerationScreen } from './screens/AccelerationScreen';
+import { VADScreen } from './screens/VADScreen';
+import { KeywordSpottingScreen } from './screens/KeywordSpottingScreen';
 
-type TabName = 'build' | 'models' | 'offlineASR' | 'streamingASR' | 'offlineTTS' | 'streamingTTS' | 'accel';
+type TabName = 'build' | 'models' | 'offlineASR' | 'streamingASR' | 'offlineTTS' | 'streamingTTS' | 'vad' | 'kws' | 'accel';
 
 const TABS: { key: TabName; label: string }[] = [
   { key: 'build', label: 'Build' },
@@ -20,6 +22,8 @@ const TABS: { key: TabName; label: string }[] = [
   { key: 'streamingASR', label: 'Stream ASR' },
   { key: 'offlineTTS', label: 'TTS' },
   { key: 'streamingTTS', label: 'Stream TTS' },
+  { key: 'vad', label: 'VAD' },
+  { key: 'kws', label: 'KWS' },
   { key: 'accel', label: 'Accel' },
 ];
 
@@ -51,6 +55,8 @@ function AppContent() {
         {activeTab === 'streamingASR' && <StreamingASRScreen />}
         {activeTab === 'offlineTTS' && <OfflineTTSScreen />}
         {activeTab === 'streamingTTS' && <StreamingTTSScreen />}
+        {activeTab === 'vad' && <VADScreen />}
+        {activeTab === 'kws' && <KeywordSpottingScreen />}
         {activeTab === 'accel' && <AccelerationScreen />}
       </ScrollView>
     </View>

@@ -282,3 +282,129 @@ export async function readWaveFile(_filePath: string) {
 export function getAvailableProviders(): string[] {
   return ['cpu', 'mock_provider'];
 }
+
+// VAD mocks
+
+let vadHandleCounter = 800;
+const destroyedVadEngines = new Set<number>();
+const vadSpeechSegments: Array<{ start: number; samples: number[] }> = [];
+
+export async function createVad(
+  _config: Record<string, unknown>,
+  _bufferSizeInSeconds: number
+): Promise<number> {
+  return ++vadHandleCounter;
+}
+
+export async function vadAcceptWaveform(
+  handle: number,
+  _samples: number[]
+): Promise<void> {
+  if (destroyedVadEngines.has(handle))
+    throw new Error(`Native: VAD ${handle} already destroyed`);
+  vadSpeechSegments.push({ start: 0, samples: [0.1, 0.2, 0.3] });
+}
+
+export async function vadEmpty(handle: number): Promise<boolean> {
+  if (destroyedVadEngines.has(handle))
+    throw new Error(`Native: VAD ${handle} already destroyed`);
+  return vadSpeechSegments.length === 0;
+}
+
+export async function vadIsSpeechDetected(handle: number): Promise<boolean> {
+  if (destroyedVadEngines.has(handle))
+    throw new Error(`Native: VAD ${handle} already destroyed`);
+  return false;
+}
+
+export async function vadPop(handle: number): Promise<void> {
+  if (destroyedVadEngines.has(handle))
+    throw new Error(`Native: VAD ${handle} already destroyed`);
+  vadSpeechSegments.shift();
+}
+
+export async function vadFront(
+  handle: number
+): Promise<{ start: number; samples: number[] }> {
+  if (destroyedVadEngines.has(handle))
+    throw new Error(`Native: VAD ${handle} already destroyed`);
+  return vadSpeechSegments[0] ?? { start: 0, samples: [] };
+}
+
+export async function vadClear(handle: number): Promise<void> {
+  if (destroyedVadEngines.has(handle))
+    throw new Error(`Native: VAD ${handle} already destroyed`);
+  vadSpeechSegments.length = 0;
+}
+
+export async function vadReset(handle: number): Promise<void> {
+  if (destroyedVadEngines.has(handle))
+    throw new Error(`Native: VAD ${handle} already destroyed`);
+}
+
+export async function vadFlush(handle: number): Promise<void> {
+  if (destroyedVadEngines.has(handle))
+    throw new Error(`Native: VAD ${handle} already destroyed`);
+}
+
+export async function destroyVad(handle: number): Promise<void> {
+  destroyedVadEngines.add(handle);
+}
+
+// KWS mocks
+
+let kwsHandleCounter = 900;
+const destroyedKwsEngines = new Set<number>();
+
+export async function createKeywordSpotter(
+  _config: Record<string, unknown>
+): Promise<number> {
+  return ++kwsHandleCounter;
+}
+
+export async function createKeywordStream(
+  _spotterHandle: number,
+  _keywords: string
+): Promise<number> {
+  return ++kwsHandleCounter;
+}
+
+export async function keywordStreamAcceptWaveform(
+  _streamHandle: number,
+  _samples: number[],
+  _sampleRate: number
+): Promise<void> {}
+
+export async function keywordSpotterIsReady(
+  _spotterHandle: number,
+  _streamHandle: number
+): Promise<boolean> {
+  return false;
+}
+
+export async function keywordSpotterDecode(
+  _spotterHandle: number,
+  _streamHandle: number
+): Promise<void> {}
+
+export async function keywordSpotterGetResult(
+  _spotterHandle: number,
+  _streamHandle: number
+): Promise<{ keyword: string; tokens: string[]; timestamps: number[] }> {
+  return { keyword: '', tokens: [], timestamps: [] };
+}
+
+export async function keywordSpotterReset(
+  _spotterHandle: number,
+  _streamHandle: number
+): Promise<void> {}
+
+export async function destroyKeywordStream(
+  _streamHandle: number
+): Promise<void> {}
+
+export async function destroyKeywordSpotter(
+  spotterHandle: number
+): Promise<void> {
+  destroyedKwsEngines.add(spotterHandle);
+}

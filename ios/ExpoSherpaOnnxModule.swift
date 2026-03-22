@@ -17,6 +17,8 @@ public class ExpoSherpaOnnxModule: Module {
   private var offlineRecognizers: [Int: SherpaOnnxOfflineRecognizer] = [:]
   private var onlineRecognizers: [Int: SherpaOnnxRecognizer] = [:]
   private var offlineTtsEngines: [Int: SherpaOnnxOfflineTtsWrapper] = [:]
+  private var vadEngines: [Int: SherpaOnnxVoiceActivityDetectorWrapper] = [:]
+  private var kwsSpotters: [Int: SherpaOnnxKeywordSpotterWrapper] = [:]
 
   private func nextHandle() -> Int {
     lock.lock()
@@ -32,6 +34,8 @@ public class ExpoSherpaOnnxModule: Module {
       self.offlineRecognizers.removeAll()
       self.onlineRecognizers.removeAll()
       self.offlineTtsEngines.removeAll()
+      self.vadEngines.removeAll()
+      self.kwsSpotters.removeAll()
     }
 
     // MARK: - Version Info
@@ -398,6 +402,161 @@ public class ExpoSherpaOnnxModule: Module {
 
       Unmanaged<TtsStreamingContext>.fromOpaque(contextPtr).release()
     }
+
+    // =========================================================================
+    // Voice Activity Detection (VAD)
+    // =========================================================================
+
+    AsyncFunction("createVad") { (config: [String: Any], bufferSizeInSeconds: Double) -> Int in
+      var vadConfig = Self.buildVadModelConfig(config)
+      let vad = SherpaOnnxVoiceActivityDetectorWrapper(
+        config: &vadConfig,
+        buffer_size_in_seconds: Float(bufferSizeInSeconds)
+      )
+      let handle = self.nextHandle()
+      self.lock.lock()
+      self.vadEngines[handle] = vad
+      self.lock.unlock()
+      return handle
+    }
+
+    AsyncFunction("vadAcceptWaveform") { (handle: Int, samples: [Double]) in
+      guard let vad = self.vadEngines[handle] else {
+        throw SherpaError.invalidHandle("VAD", handle)
+      }
+      let floatSamples = samples.map { Float($0) }
+      vad.acceptWaveform(samples: floatSamples)
+    }
+
+    AsyncFunction("vadEmpty") { (handle: Int) -> Bool in
+      guard let vad = self.vadEngines[handle] else {
+        throw SherpaError.invalidHandle("VAD", handle)
+      }
+      return vad.isEmpty()
+    }
+
+    AsyncFunction("vadIsSpeechDetected") { (handle: Int) -> Bool in
+      guard let vad = self.vadEngines[handle] else {
+        throw SherpaError.invalidHandle("VAD", handle)
+      }
+      return vad.isSpeechDetected()
+    }
+
+    AsyncFunction("vadPop") { (handle: Int) in
+      guard let vad = self.vadEngines[handle] else {
+        throw SherpaError.invalidHandle("VAD", handle)
+      }
+      vad.pop()
+    }
+
+    AsyncFunction("vadFront") { (handle: Int) -> [String: Any] in
+      guard let vad = self.vadEngines[handle] else {
+        throw SherpaError.invalidHandle("VAD", handle)
+      }
+      let segment = vad.front()
+      return [
+        "start": segment.start,
+        "samples": segment.samples.map { Double($0) },
+      ]
+    }
+
+    AsyncFunction("vadClear") { (handle: Int) in
+      guard let vad = self.vadEngines[handle] else {
+        throw SherpaError.invalidHandle("VAD", handle)
+      }
+      vad.clear()
+    }
+
+    AsyncFunction("vadReset") { (handle: Int) in
+      guard let vad = self.vadEngines[handle] else {
+        throw SherpaError.invalidHandle("VAD", handle)
+      }
+      vad.reset()
+    }
+
+    AsyncFunction("vadFlush") { (handle: Int) in
+      guard let vad = self.vadEngines[handle] else {
+        throw SherpaError.invalidHandle("VAD", handle)
+      }
+      vad.flush()
+    }
+
+    AsyncFunction("destroyVad") { (handle: Int) in
+      self.lock.lock()
+      self.vadEngines.removeValue(forKey: handle)
+      self.lock.unlock()
+    }
+
+    // =========================================================================
+    // Keyword Spotting
+    // =========================================================================
+
+    AsyncFunction("createKeywordSpotter") { (config: [String: Any]) -> Int in
+      var kwsConfig = Self.buildKeywordSpotterConfig(config)
+      let spotter = SherpaOnnxKeywordSpotterWrapper(config: &kwsConfig)
+      let handle = self.nextHandle()
+      self.lock.lock()
+      self.kwsSpotters[handle] = spotter
+      self.lock.unlock()
+      return handle
+    }
+
+    AsyncFunction("createKeywordStream") { (spotterHandle: Int, keywords: String) -> Int in
+      // On iOS, the KWS wrapper owns a single stream internally.
+      // We return the spotter handle as the stream handle.
+      return spotterHandle
+    }
+
+    AsyncFunction("keywordStreamAcceptWaveform") { (streamHandle: Int, samples: [Double], sampleRate: Int) in
+      guard let spotter = self.kwsSpotters[streamHandle] else {
+        throw SherpaError.invalidHandle("KeywordSpotter stream", streamHandle)
+      }
+      let floatSamples = samples.map { Float($0) }
+      spotter.acceptWaveform(samples: floatSamples, sampleRate: sampleRate)
+    }
+
+    AsyncFunction("keywordSpotterIsReady") { (spotterHandle: Int, streamHandle: Int) -> Bool in
+      guard let spotter = self.kwsSpotters[spotterHandle] else {
+        throw SherpaError.invalidHandle("KeywordSpotter", spotterHandle)
+      }
+      return spotter.isReady()
+    }
+
+    AsyncFunction("keywordSpotterDecode") { (spotterHandle: Int, streamHandle: Int) in
+      guard let spotter = self.kwsSpotters[spotterHandle] else {
+        throw SherpaError.invalidHandle("KeywordSpotter", spotterHandle)
+      }
+      spotter.decode()
+    }
+
+    AsyncFunction("keywordSpotterGetResult") { (spotterHandle: Int, streamHandle: Int) -> [String: Any] in
+      guard let spotter = self.kwsSpotters[spotterHandle] else {
+        throw SherpaError.invalidHandle("KeywordSpotter", spotterHandle)
+      }
+      let result = spotter.getResult()
+      return [
+        "keyword": result.keyword,
+        "tokens": result.tokens,
+        "timestamps": [] as [Double],
+      ]
+    }
+
+    AsyncFunction("keywordSpotterReset") { (spotterHandle: Int, streamHandle: Int) in
+      guard let spotter = self.kwsSpotters[spotterHandle] else {
+        throw SherpaError.invalidHandle("KeywordSpotter", spotterHandle)
+      }
+      spotter.reset()
+    }
+
+    AsyncFunction("destroyKeywordStream") { (streamHandle: Int) in
+      // No-op on iOS: stream is owned by the spotter wrapper
+    }
+
+    AsyncFunction("destroyKeywordSpotter") { (spotterHandle: Int) in
+      self.lock.lock()
+      self.kwsSpotters.removeValue(forKey: spotterHandle)
+      self.lock.unlock()
+    }
   }
 
   // MARK: - Path Resolution Helpers
@@ -755,6 +914,87 @@ public class ExpoSherpaOnnxModule: Module {
       ruleFars: config["ruleFars"] as? String ?? "",
       maxNumSentences: config["maxNumSentences"] as? Int ?? 1,
       silenceScale: Float(config["silenceScale"] as? Double ?? 0.2)
+    )
+  }
+
+  private static func buildVadModelConfig(_ config: [String: Any]) -> SherpaOnnxVadModelConfig {
+    let sileroMap = config["sileroVadModelConfig"] as? [String: Any] ?? [:]
+    let tenMap = config["tenVadModelConfig"] as? [String: Any] ?? [:]
+
+    let silero = sherpaOnnxSileroVadModelConfig(
+      model: sileroMap["model"] as? String ?? "",
+      threshold: Float(sileroMap["threshold"] as? Double ?? 0.5),
+      minSilenceDuration: Float(sileroMap["minSilenceDuration"] as? Double ?? 0.25),
+      minSpeechDuration: Float(sileroMap["minSpeechDuration"] as? Double ?? 0.25),
+      windowSize: sileroMap["windowSize"] as? Int ?? 512,
+      maxSpeechDuration: Float(sileroMap["maxSpeechDuration"] as? Double ?? 5.0)
+    )
+
+    let tenVad = sherpaOnnxTenVadModelConfig(
+      model: tenMap["model"] as? String ?? "",
+      threshold: Float(tenMap["threshold"] as? Double ?? 0.5),
+      minSilenceDuration: Float(tenMap["minSilenceDuration"] as? Double ?? 0.25),
+      minSpeechDuration: Float(tenMap["minSpeechDuration"] as? Double ?? 0.25),
+      windowSize: tenMap["windowSize"] as? Int ?? 256,
+      maxSpeechDuration: Float(tenMap["maxSpeechDuration"] as? Double ?? 5.0)
+    )
+
+    return sherpaOnnxVadModelConfig(
+      sileroVad: silero,
+      sampleRate: Int32(config["sampleRate"] as? Int ?? 16000),
+      numThreads: config["numThreads"] as? Int ?? 1,
+      provider: config["provider"] as? String ?? "cpu",
+      debug: (config["debug"] as? Bool ?? false) ? 1 : 0,
+      tenVad: tenVad
+    )
+  }
+
+  private static func buildKeywordSpotterConfig(_ config: [String: Any]) -> SherpaOnnxKeywordSpotterConfig {
+    let modelMap = config["modelConfig"] as? [String: Any] ?? [:]
+    let featMap = config["featConfig"] as? [String: Any] ?? [:]
+    let transducerMap = modelMap["transducer"] as? [String: Any] ?? [:]
+
+    let feat = SherpaOnnxFeatureConfig(
+      sample_rate: Int32(featMap["sampleRate"] as? Int ?? 16000),
+      feature_dim: Int32(featMap["featureDim"] as? Int ?? 80)
+    )
+
+    let transducer = sherpaOnnxOnlineTransducerModelConfig(
+      encoder: transducerMap["encoder"] as? String ?? "",
+      decoder: transducerMap["decoder"] as? String ?? "",
+      joiner: transducerMap["joiner"] as? String ?? ""
+    )
+
+    let paraformerMap = modelMap["paraformer"] as? [String: Any] ?? [:]
+    let paraformer = sherpaOnnxOnlineParaformerModelConfig(
+      encoder: paraformerMap["encoder"] as? String ?? "",
+      decoder: paraformerMap["decoder"] as? String ?? ""
+    )
+
+    let zipformerCtcMap = modelMap["zipformer2Ctc"] as? [String: Any] ?? [:]
+    let zipformerCtc = sherpaOnnxOnlineZipformer2CtcModelConfig(
+      model: zipformerCtcMap["model"] as? String ?? ""
+    )
+
+    let modelConfig = sherpaOnnxOnlineModelConfig(
+      tokens: modelMap["tokens"] as? String ?? "",
+      transducer: transducer,
+      paraformer: paraformer,
+      zipformer2Ctc: zipformerCtc,
+      numThreads: modelMap["numThreads"] as? Int ?? 1,
+      provider: modelMap["provider"] as? String ?? "cpu",
+      debug: (modelMap["debug"] as? Bool ?? false) ? 1 : 0,
+      modelType: modelMap["modelType"] as? String ?? ""
+    )
+
+    return sherpaOnnxKeywordSpotterConfig(
+      featConfig: feat,
+      modelConfig: modelConfig,
+      keywordsFile: config["keywordsFile"] as? String ?? "",
+      maxActivePaths: config["maxActivePaths"] as? Int ?? 4,
+      numTrailingBlanks: config["numTrailingBlanks"] as? Int ?? 2,
+      keywordsScore: Float(config["keywordsScore"] as? Double ?? 1.5),
+      keywordsThreshold: Float(config["keywordsThreshold"] as? Double ?? 0.25)
     )
   }
 }

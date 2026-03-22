@@ -17,6 +17,10 @@ class ExpoSherpaOnnxModule : Module() {
   private val onlineStreams = ConcurrentHashMap<Int, OnlineStream>()
   private val streamToRecognizer = ConcurrentHashMap<Int, Int>()
   private val offlineTtsEngines = ConcurrentHashMap<Int, OfflineTts>()
+  private val vadEngines = ConcurrentHashMap<Int, Vad>()
+  private val keywordSpotters = ConcurrentHashMap<Int, KeywordSpotter>()
+  private val kwsStreams = ConcurrentHashMap<Int, OnlineStream>()
+  private val kwsStreamToSpotter = ConcurrentHashMap<Int, Int>()
 
   override fun definition() = ModuleDefinition {
     Name("ExpoSherpaOnnx")
@@ -37,6 +41,18 @@ class ExpoSherpaOnnxModule : Module() {
 
       offlineTtsEngines.values.forEach { it.release() }
       offlineTtsEngines.clear()
+
+      val kwsStr = kwsStreams.toMap()
+      kwsStreams.clear()
+      kwsStreamToSpotter.clear()
+      kwsStr.values.forEach { try { it.release() } catch (_: Exception) {} }
+
+      val spotters = keywordSpotters.toMap()
+      keywordSpotters.clear()
+      spotters.values.forEach { try { it.release() } catch (_: Exception) {} }
+
+      vadEngines.values.forEach { try { it.release() } catch (_: Exception) {} }
+      vadEngines.clear()
     }
 
     // Version info
@@ -402,6 +418,186 @@ class ExpoSherpaOnnxModule : Module() {
         ))
       }
       Log.i(TAG, "=== offlineTtsGenerateStreaming DONE ===")
+    }
+
+    // =========================================================================
+    // Voice Activity Detection (VAD)
+    // =========================================================================
+
+    AsyncFunction("createVad") { config: Map<String, Any?>, bufferSizeInSeconds: Double ->
+      val vadConfig = buildVadModelConfig(config)
+      validateVadConfig(vadConfig)
+      Log.i(TAG, "=== createVad START ===")
+      val vad = try {
+        Vad(null, vadConfig)
+      } catch (e: Exception) {
+        Log.e(TAG, "  Vad constructor threw: ${e.message}", e)
+        throw Exception("Native VAD creation failed: ${e.message}")
+      }
+      val handle = handleCounter.incrementAndGet()
+      vadEngines[handle] = vad
+      Log.i(TAG, "=== createVad DONE handle=$handle ===")
+      handle
+    }
+
+    AsyncFunction("vadAcceptWaveform") { handle: Int, samples: List<Double> ->
+      val vad = vadEngines[handle]
+        ?: throw IllegalArgumentException("Invalid VAD handle: $handle")
+      val floatSamples = FloatArray(samples.size) { samples[it].toFloat() }
+      vad.acceptWaveform(floatSamples)
+    }
+
+    AsyncFunction("vadEmpty") { handle: Int ->
+      val vad = vadEngines[handle]
+        ?: throw IllegalArgumentException("Invalid VAD handle: $handle")
+      vad.empty()
+    }
+
+    AsyncFunction("vadIsSpeechDetected") { handle: Int ->
+      val vad = vadEngines[handle]
+        ?: throw IllegalArgumentException("Invalid VAD handle: $handle")
+      vad.isSpeechDetected()
+    }
+
+    AsyncFunction("vadPop") { handle: Int ->
+      val vad = vadEngines[handle]
+        ?: throw IllegalArgumentException("Invalid VAD handle: $handle")
+      vad.pop()
+    }
+
+    AsyncFunction("vadFront") { handle: Int ->
+      val vad = vadEngines[handle]
+        ?: throw IllegalArgumentException("Invalid VAD handle: $handle")
+      val segment = vad.front()
+      mapOf(
+        "start" to segment.start,
+        "samples" to segment.samples.map { it.toDouble() },
+      )
+    }
+
+    AsyncFunction("vadClear") { handle: Int ->
+      val vad = vadEngines[handle]
+        ?: throw IllegalArgumentException("Invalid VAD handle: $handle")
+      vad.clear()
+    }
+
+    AsyncFunction("vadReset") { handle: Int ->
+      val vad = vadEngines[handle]
+        ?: throw IllegalArgumentException("Invalid VAD handle: $handle")
+      vad.reset()
+    }
+
+    AsyncFunction("vadFlush") { handle: Int ->
+      val vad = vadEngines[handle]
+        ?: throw IllegalArgumentException("Invalid VAD handle: $handle")
+      vad.flush()
+    }
+
+    AsyncFunction("destroyVad") { handle: Int ->
+      Log.i(TAG, "=== destroyVad handle=$handle ===")
+      val vad = vadEngines.remove(handle)
+      if (vad != null) {
+        try { vad.release() } catch (e: Exception) {
+          Log.e(TAG, "  VAD release() threw: ${e.message}", e)
+        }
+      }
+    }
+
+    // =========================================================================
+    // Keyword Spotting
+    // =========================================================================
+
+    AsyncFunction("createKeywordSpotter") { config: Map<String, Any?> ->
+      val kwsConfig = buildKeywordSpotterConfig(config)
+      validateKwsConfig(kwsConfig)
+      Log.i(TAG, "=== createKeywordSpotter START ===")
+      val spotter = try {
+        KeywordSpotter(null, kwsConfig)
+      } catch (e: Exception) {
+        Log.e(TAG, "  KeywordSpotter constructor threw: ${e.message}", e)
+        throw Exception("Native KeywordSpotter creation failed: ${e.message}")
+      }
+      val handle = handleCounter.incrementAndGet()
+      keywordSpotters[handle] = spotter
+      Log.i(TAG, "=== createKeywordSpotter DONE handle=$handle ===")
+      handle
+    }
+
+    AsyncFunction("createKeywordStream") { spotterHandle: Int, keywords: String ->
+      val spotter = keywordSpotters[spotterHandle]
+        ?: throw IllegalArgumentException("Invalid KeywordSpotter handle: $spotterHandle")
+      val stream = spotter.createStream(keywords)
+      val streamHandle = handleCounter.incrementAndGet()
+      kwsStreams[streamHandle] = stream
+      kwsStreamToSpotter[streamHandle] = spotterHandle
+      streamHandle
+    }
+
+    AsyncFunction("keywordStreamAcceptWaveform") { streamHandle: Int, samples: List<Double>, sampleRate: Int ->
+      val stream = kwsStreams[streamHandle]
+        ?: throw IllegalArgumentException("Invalid KWS stream handle: $streamHandle")
+      val floatSamples = FloatArray(samples.size) { samples[it].toFloat() }
+      stream.acceptWaveform(floatSamples, sampleRate)
+    }
+
+    AsyncFunction("keywordSpotterIsReady") { spotterHandle: Int, streamHandle: Int ->
+      val spotter = keywordSpotters[spotterHandle]
+        ?: throw IllegalArgumentException("Invalid KeywordSpotter handle: $spotterHandle")
+      val stream = kwsStreams[streamHandle]
+        ?: throw IllegalArgumentException("Invalid KWS stream handle: $streamHandle")
+      spotter.isReady(stream)
+    }
+
+    AsyncFunction("keywordSpotterDecode") { spotterHandle: Int, streamHandle: Int ->
+      val spotter = keywordSpotters[spotterHandle]
+        ?: throw IllegalArgumentException("Invalid KeywordSpotter handle: $spotterHandle")
+      val stream = kwsStreams[streamHandle]
+        ?: throw IllegalArgumentException("Invalid KWS stream handle: $streamHandle")
+      spotter.decode(stream)
+    }
+
+    AsyncFunction("keywordSpotterGetResult") { spotterHandle: Int, streamHandle: Int ->
+      val spotter = keywordSpotters[spotterHandle]
+        ?: throw IllegalArgumentException("Invalid KeywordSpotter handle: $spotterHandle")
+      val stream = kwsStreams[streamHandle]
+        ?: throw IllegalArgumentException("Invalid KWS stream handle: $streamHandle")
+      val result = spotter.getResult(stream)
+      mapOf(
+        "keyword" to result.keyword,
+        "tokens" to result.tokens.toList(),
+        "timestamps" to result.timestamps.map { it.toDouble() },
+      )
+    }
+
+    AsyncFunction("keywordSpotterReset") { spotterHandle: Int, streamHandle: Int ->
+      val spotter = keywordSpotters[spotterHandle]
+        ?: throw IllegalArgumentException("Invalid KeywordSpotter handle: $spotterHandle")
+      val stream = kwsStreams[streamHandle]
+        ?: throw IllegalArgumentException("Invalid KWS stream handle: $streamHandle")
+      spotter.reset(stream)
+    }
+
+    AsyncFunction("destroyKeywordStream") { streamHandle: Int ->
+      val stream = kwsStreams.remove(streamHandle)
+      kwsStreamToSpotter.remove(streamHandle)
+      if (stream != null) {
+        try { stream.release() } catch (_: Exception) {}
+      }
+    }
+
+    AsyncFunction("destroyKeywordSpotter") { spotterHandle: Int ->
+      Log.i(TAG, "=== destroyKeywordSpotter handle=$spotterHandle ===")
+      val streamsToRemove = kwsStreamToSpotter.filter { it.value == spotterHandle }.keys
+      streamsToRemove.forEach { sh ->
+        kwsStreams.remove(sh)?.let { try { it.release() } catch (_: Exception) {} }
+        kwsStreamToSpotter.remove(sh)
+      }
+      val spotter = keywordSpotters.remove(spotterHandle)
+      if (spotter != null) {
+        try { spotter.release() } catch (e: Exception) {
+          Log.e(TAG, "  KWS release() threw: ${e.message}", e)
+        }
+      }
     }
   }
 
@@ -891,5 +1087,106 @@ class ExpoSherpaOnnxModule : Module() {
       maxNumSentences = (config["maxNumSentences"] as? Number)?.toInt() ?: 1,
       silenceScale = (config["silenceScale"] as? Number)?.toFloat() ?: 0.2f,
     )
+  }
+
+  @Suppress("UNCHECKED_CAST")
+  private fun buildVadModelConfig(config: Map<String, Any?>): VadModelConfig {
+    val sileroMap = config["sileroVadModelConfig"] as? Map<String, Any?> ?: emptyMap()
+    val tenMap = config["tenVadModelConfig"] as? Map<String, Any?> ?: emptyMap()
+
+    return VadModelConfig(
+      sileroVadModelConfig = SileroVadModelConfig(
+        model = sileroMap["model"] as? String ?: "",
+        threshold = (sileroMap["threshold"] as? Number)?.toFloat() ?: 0.5f,
+        minSilenceDuration = (sileroMap["minSilenceDuration"] as? Number)?.toFloat() ?: 0.25f,
+        minSpeechDuration = (sileroMap["minSpeechDuration"] as? Number)?.toFloat() ?: 0.25f,
+        windowSize = (sileroMap["windowSize"] as? Number)?.toInt() ?: 512,
+        maxSpeechDuration = (sileroMap["maxSpeechDuration"] as? Number)?.toFloat() ?: 5.0f,
+      ),
+      tenVadModelConfig = TenVadModelConfig(
+        model = tenMap["model"] as? String ?: "",
+        threshold = (tenMap["threshold"] as? Number)?.toFloat() ?: 0.5f,
+        minSilenceDuration = (tenMap["minSilenceDuration"] as? Number)?.toFloat() ?: 0.25f,
+        minSpeechDuration = (tenMap["minSpeechDuration"] as? Number)?.toFloat() ?: 0.25f,
+        windowSize = (tenMap["windowSize"] as? Number)?.toInt() ?: 256,
+        maxSpeechDuration = (tenMap["maxSpeechDuration"] as? Number)?.toFloat() ?: 5.0f,
+      ),
+      sampleRate = (config["sampleRate"] as? Number)?.toInt() ?: 16000,
+      numThreads = (config["numThreads"] as? Number)?.toInt() ?: 1,
+      provider = config["provider"] as? String ?: "cpu",
+      debug = config["debug"] as? Boolean ?: false,
+    )
+  }
+
+  private fun validateVadConfig(c: VadModelConfig) {
+    val hasSilero = c.sileroVadModelConfig.model.isNotBlank()
+    val hasTen = c.tenVadModelConfig.model.isNotBlank()
+    if (!hasSilero && !hasTen) {
+      throw Exception("No VAD model specified. Provide either sileroVadModelConfig.model or tenVadModelConfig.model.")
+    }
+    if (hasSilero) {
+      requireFile(c.sileroVadModelConfig.model, "silero VAD model")
+    }
+    if (hasTen) {
+      requireFile(c.tenVadModelConfig.model, "ten VAD model")
+    }
+    Log.i(TAG, "VAD config validated OK")
+  }
+
+  @Suppress("UNCHECKED_CAST")
+  private fun buildKeywordSpotterConfig(config: Map<String, Any?>): KeywordSpotterConfig {
+    val modelMap = config["modelConfig"] as? Map<String, Any?> ?: emptyMap()
+    val featMap = config["featConfig"] as? Map<String, Any?> ?: emptyMap()
+    val transducerMap = modelMap["transducer"] as? Map<String, Any?> ?: emptyMap()
+
+    return KeywordSpotterConfig(
+      featConfig = FeatureConfig(
+        sampleRate = (featMap["sampleRate"] as? Number)?.toInt() ?: 16000,
+        featureDim = (featMap["featureDim"] as? Number)?.toInt() ?: 80,
+      ),
+      modelConfig = OnlineModelConfig(
+        tokens = modelMap["tokens"] as? String ?: "",
+        numThreads = (modelMap["numThreads"] as? Number)?.toInt() ?: 1,
+        debug = modelMap["debug"] as? Boolean ?: false,
+        provider = modelMap["provider"] as? String ?: "cpu",
+        modelType = modelMap["modelType"] as? String ?: "",
+        transducer = OnlineTransducerModelConfig(
+          encoder = transducerMap["encoder"] as? String ?: "",
+          decoder = transducerMap["decoder"] as? String ?: "",
+          joiner = transducerMap["joiner"] as? String ?: "",
+        ),
+        paraformer = OnlineParaformerModelConfig(
+          encoder = (modelMap["paraformer"] as? Map<String, Any?>)?.get("encoder") as? String ?: "",
+          decoder = (modelMap["paraformer"] as? Map<String, Any?>)?.get("decoder") as? String ?: "",
+        ),
+        zipformer2Ctc = OnlineZipformer2CtcModelConfig(
+          model = (modelMap["zipformer2Ctc"] as? Map<String, Any?>)?.get("model") as? String ?: "",
+        ),
+      ),
+      maxActivePaths = (config["maxActivePaths"] as? Number)?.toInt() ?: 4,
+      keywordsFile = config["keywordsFile"] as? String ?: "",
+      keywordsScore = (config["keywordsScore"] as? Number)?.toFloat() ?: 1.5f,
+      keywordsThreshold = (config["keywordsThreshold"] as? Number)?.toFloat() ?: 0.25f,
+      numTrailingBlanks = (config["numTrailingBlanks"] as? Number)?.toInt() ?: 2,
+    )
+  }
+
+  private fun validateKwsConfig(c: KeywordSpotterConfig) {
+    requireFile(c.modelConfig.tokens, "KWS tokens")
+
+    val t = c.modelConfig.transducer
+    val hasTransducer = t.encoder.isNotBlank() || t.decoder.isNotBlank() || t.joiner.isNotBlank()
+    if (!hasTransducer) {
+      throw Exception("Keyword spotting requires a transducer model (encoder + decoder + joiner).")
+    }
+    requireFile(t.encoder, "KWS transducer encoder")
+    requireFile(t.decoder, "KWS transducer decoder")
+    requireFile(t.joiner, "KWS transducer joiner")
+
+    if (c.keywordsFile.isNotBlank()) {
+      requireFile(c.keywordsFile, "keywords file")
+    }
+
+    Log.i(TAG, "KWS config validated OK")
   }
 }
