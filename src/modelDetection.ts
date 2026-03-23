@@ -6,10 +6,6 @@ import type {
 } from "./ExpoSherpaOnnx.types";
 import { listModelsAtPath } from "./utils";
 
-function matchFiles(files: string[], pattern: RegExp): string[] {
-  return files.filter((f) => pattern.test(f));
-}
-
 function findFirst(files: string[], pattern: RegExp): string | undefined {
   return files.find((f) => pattern.test(f));
 }

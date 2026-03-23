@@ -3,12 +3,12 @@
 > **Warning**
 > This is an **unstable, work-in-progress** version. APIs may change without notice. Not recommended for production use yet.
 
-![version](https://img.shields.io/badge/version-0.0.1-blue)
+![version](https://img.shields.io/badge/version-0.0.0-blue)
 ![platforms](https://img.shields.io/badge/platforms-android%20%7C%20ios-lightgrey)
 ![tests](https://img.shields.io/badge/tests-316%20passed-brightgreen)
-![statements](https://img.shields.io/badge/coverage%3A%20statements-87.33%25-yellow)
-![lines](https://img.shields.io/badge/coverage%3A%20lines-87%25-yellow)
-![functions](https://img.shields.io/badge/coverage%3A%20functions-92.42%25-brightgreen)
+![statements](https://img.shields.io/badge/coverage%3A%20statements-87.5%25-yellow)
+![lines](https://img.shields.io/badge/coverage%3A%20lines-87.11%25-yellow)
+![functions](https://img.shields.io/badge/coverage%3A%20functions-92.89%25-brightgreen)
 ![branches](https://img.shields.io/badge/coverage%3A%20branches-60.6%25-orange)
 
 Expo module wrapping [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) for on-device speech processing in React Native. Runs fully offline on Android and iOS — no network calls, no cloud APIs.

@@ -56,6 +56,9 @@ yarn-error.log
 # Coverage
 coverage/
 
+# Publishing docs (local only)
+publish.md
+
 # Prebuilt native binaries (shipped via npm, built from source for dev)
 ios/*.xcframework/
 android/src/main/jniLibs/
