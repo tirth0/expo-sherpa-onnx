@@ -35,7 +35,9 @@ export async function downloadFileAsync(
   options: DownloadOptions | undefined
 ): Promise<any> {}
 
-export async function pickDirectoryAsync(initialUri: URL | undefined): Promise<any> {}
+export async function pickDirectoryAsync(
+  initialUri: URL | undefined
+): Promise<any> {}
 
 export async function pickFileAsync(
   initialUri: URL | undefined,

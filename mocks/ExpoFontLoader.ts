@@ -9,4 +9,7 @@ export type URL = any;
 
 export function getLoadedFonts(): any {}
 
-export async function loadAsync(fontFamilyAlias: string, localUri: URL): Promise<any> {}
+export async function loadAsync(
+  fontFamilyAlias: string,
+  localUri: URL
+): Promise<any> {}

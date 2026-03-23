@@ -1,8 +1,8 @@
-import ExpoSherpaOnnxModule from './ExpoSherpaOnnxModule';
+import ExpoSherpaOnnxModule from "./ExpoSherpaOnnxModule";
 import type {
   KeywordSpotterConfig,
   KeywordSpotterResult,
-} from './ExpoSherpaOnnx.types';
+} from "./ExpoSherpaOnnx.types";
 
 export interface KeywordStream {
   readonly streamHandle: number;
@@ -33,8 +33,8 @@ export async function createKeywordSpotter(
       return spotterHandle;
     },
 
-    async createStream(keywords = ''): Promise<KeywordStream> {
-      if (destroyed) throw new Error('KeywordSpotterEngine has been destroyed');
+    async createStream(keywords = ""): Promise<KeywordStream> {
+      if (destroyed) throw new Error("KeywordSpotterEngine has been destroyed");
       const streamHandle = await ExpoSherpaOnnxModule.createKeywordStream(
         spotterHandle,
         keywords
@@ -51,7 +51,7 @@ export async function createKeywordSpotter(
           sampleRate = 16000
         ): Promise<void> {
           if (streamDestroyed)
-            throw new Error('KeywordStream has been destroyed');
+            throw new Error("KeywordStream has been destroyed");
           return ExpoSherpaOnnxModule.keywordStreamAcceptWaveform(
             streamHandle,
             samples,
@@ -61,7 +61,7 @@ export async function createKeywordSpotter(
 
         async isReady(): Promise<boolean> {
           if (streamDestroyed)
-            throw new Error('KeywordStream has been destroyed');
+            throw new Error("KeywordStream has been destroyed");
           return ExpoSherpaOnnxModule.keywordSpotterIsReady(
             spotterHandle,
             streamHandle
@@ -70,7 +70,7 @@ export async function createKeywordSpotter(
 
         async decode(): Promise<void> {
           if (streamDestroyed)
-            throw new Error('KeywordStream has been destroyed');
+            throw new Error("KeywordStream has been destroyed");
           return ExpoSherpaOnnxModule.keywordSpotterDecode(
             spotterHandle,
             streamHandle
@@ -79,7 +79,7 @@ export async function createKeywordSpotter(
 
         async getResult(): Promise<KeywordSpotterResult> {
           if (streamDestroyed)
-            throw new Error('KeywordStream has been destroyed');
+            throw new Error("KeywordStream has been destroyed");
           return ExpoSherpaOnnxModule.keywordSpotterGetResult(
             spotterHandle,
             streamHandle
@@ -88,7 +88,7 @@ export async function createKeywordSpotter(
 
         async reset(): Promise<void> {
           if (streamDestroyed)
-            throw new Error('KeywordStream has been destroyed');
+            throw new Error("KeywordStream has been destroyed");
           return ExpoSherpaOnnxModule.keywordSpotterReset(
             spotterHandle,
             streamHandle

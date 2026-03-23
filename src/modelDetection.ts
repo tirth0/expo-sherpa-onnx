@@ -1,15 +1,12 @@
-import { listModelsAtPath } from './utils';
+import { listModelsAtPath } from "./utils";
 import type {
   DetectedSttModel,
   DetectedTtsModel,
   SttModelType,
   TtsModelType,
-} from './ExpoSherpaOnnx.types';
+} from "./ExpoSherpaOnnx.types";
 
-function matchFiles(
-  files: string[],
-  pattern: RegExp
-): string[] {
+function matchFiles(files: string[], pattern: RegExp): string[] {
   return files.filter((f) => pattern.test(f));
 }
 
@@ -18,12 +15,12 @@ function findFirst(files: string[], pattern: RegExp): string | undefined {
 }
 
 function onnxFiles(files: string[]): string[] {
-  return files.filter((f) => f.endsWith('.onnx'));
+  return files.filter((f) => f.endsWith(".onnx"));
 }
 
 function dirNameHint(modelPath: string): string {
-  const parts = modelPath.replace(/\/+$/, '').split('/');
-  return (parts[parts.length - 1] ?? '').toLowerCase();
+  const parts = modelPath.replace(/\/+$/, "").split("/");
+  return (parts[parts.length - 1] ?? "").toLowerCase();
 }
 
 export async function detectSttModel(
@@ -46,7 +43,7 @@ export async function detectSttModel(
 
   if (preprocess && encoder && (uncachedDecoder || mergedDecoder)) {
     return {
-      type: 'moonshine',
+      type: "moonshine",
       files: {
         ...(preprocess && { preprocessor: preprocess }),
         ...(encoder && { encoder }),
@@ -66,7 +63,7 @@ export async function detectSttModel(
 
   if (encoderAdaptor && llm && embedding) {
     return {
-      type: 'funasr_nano',
+      type: "funasr_nano",
       files: {
         encoderAdaptor,
         llm,
@@ -79,8 +76,8 @@ export async function detectSttModel(
 
   // Transducer: encoder + decoder + joiner
   if (encoder && decoder && joiner) {
-    let type: SttModelType = 'transducer';
-    if (hint.includes('nemo')) type = 'nemo_transducer';
+    let type: SttModelType = "transducer";
+    if (hint.includes("nemo")) type = "nemo_transducer";
     return {
       type,
       files: { encoder, decoder, joiner },
@@ -90,10 +87,11 @@ export async function detectSttModel(
 
   // Whisper / Canary / FireRedAsr: encoder + decoder, no joiner
   if (encoder && decoder && !joiner) {
-    let type: SttModelType = 'whisper';
-    if (hint.includes('canary')) type = 'canary';
-    else if (hint.includes('fire') && hint.includes('red')) type = 'fire_red_asr';
-    else if (hint.includes('whisper')) type = 'whisper';
+    let type: SttModelType = "whisper";
+    if (hint.includes("canary")) type = "canary";
+    else if (hint.includes("fire") && hint.includes("red"))
+      type = "fire_red_asr";
+    else if (hint.includes("whisper")) type = "whisper";
     return {
       type,
       files: { encoder, decoder },
@@ -105,29 +103,31 @@ export async function detectSttModel(
   const singleModel = findFirst(onnx, /\bmodel[^/]*\.onnx$/i);
 
   // SenseVoice: hint or specific naming
-  if (hint.includes('sense') || hint.includes('sensevoice')) {
+  if (hint.includes("sense") || hint.includes("sensevoice")) {
     return {
-      type: 'sense_voice',
-      files: { model: singleModel ?? onnx[0] ?? '' },
+      type: "sense_voice",
+      files: { model: singleModel ?? onnx[0] ?? "" },
       tokensPath: tokens,
     };
   }
 
   // CTC variants (single model + tokens)
   if (singleModel || onnx.length === 1) {
-    const modelFile = singleModel ?? onnx[0] ?? '';
-    let type: SttModelType = 'zipformer_ctc';
+    const modelFile = singleModel ?? onnx[0] ?? "";
+    let type: SttModelType = "zipformer_ctc";
 
-    if (hint.includes('nemo')) type = 'nemo_ctc';
-    else if (hint.includes('wenet')) type = 'wenet_ctc';
-    else if (hint.includes('dolphin')) type = 'dolphin';
-    else if (hint.includes('omnilingual')) type = 'omnilingual';
-    else if (hint.includes('medasr') || hint.includes('med_asr')) type = 'medasr';
-    else if (hint.includes('telespeech')) type = 'telespeech_ctc';
-    else if (hint.includes('paraformer')) type = 'paraformer';
-    else if (hint.includes('tone')) type = 'tone_ctc';
-    else if (hint.includes('fire') && hint.includes('red')) type = 'fire_red_asr';
-    else if (hint.includes('zipformer')) type = 'zipformer_ctc';
+    if (hint.includes("nemo")) type = "nemo_ctc";
+    else if (hint.includes("wenet")) type = "wenet_ctc";
+    else if (hint.includes("dolphin")) type = "dolphin";
+    else if (hint.includes("omnilingual")) type = "omnilingual";
+    else if (hint.includes("medasr") || hint.includes("med_asr"))
+      type = "medasr";
+    else if (hint.includes("telespeech")) type = "telespeech_ctc";
+    else if (hint.includes("paraformer")) type = "paraformer";
+    else if (hint.includes("tone")) type = "tone_ctc";
+    else if (hint.includes("fire") && hint.includes("red"))
+      type = "fire_red_asr";
+    else if (hint.includes("zipformer")) type = "zipformer_ctc";
 
     return {
       type,
@@ -137,7 +137,7 @@ export async function detectSttModel(
   }
 
   return {
-    type: 'auto',
+    type: "auto",
     files: {},
     tokensPath: tokens,
   };
@@ -163,7 +163,7 @@ export async function detectTtsModel(
     const encoder = findFirst(onnx, /encoder/i);
     const decoder = findFirst(onnx, /decoder/i);
     return {
-      type: 'pocket',
+      type: "pocket",
       files: {
         lmFlow,
         lmMain,
@@ -184,7 +184,7 @@ export async function detectTtsModel(
 
   if (encoder && decoder && vocoder) {
     return {
-      type: 'zipvoice',
+      type: "zipvoice",
       files: { encoder, decoder, vocoder },
       tokensPath: tokens,
     };
@@ -195,15 +195,14 @@ export async function detectTtsModel(
   const espeakData = findFirst(allFiles, /espeak-ng-data/i);
 
   if (voicesBin) {
-    const type: TtsModelType =
-      hint.includes('kitten') ? 'kitten' : 'kokoro';
-    const model = findFirst(onnx, /model/i) ?? onnx[0] ?? '';
+    const type: TtsModelType = hint.includes("kitten") ? "kitten" : "kokoro";
+    const model = findFirst(onnx, /model/i) ?? onnx[0] ?? "";
     return {
       type,
       files: {
         model,
         voices: voicesBin,
-        ...(espeakData && { dataDir: espeakData.replace(/\/[^/]+$/, '') }),
+        ...(espeakData && { dataDir: espeakData.replace(/\/[^/]+$/, "") }),
       },
       tokensPath: tokens,
     };
@@ -217,7 +216,7 @@ export async function detectTtsModel(
 
   if (durationPredictor && textEncoder && vectorEstimator && vocoder) {
     return {
-      type: 'supertonic',
+      type: "supertonic",
       files: {
         durationPredictor,
         textEncoder,
@@ -234,17 +233,17 @@ export async function detectTtsModel(
 
   if (acousticModel && vocoder) {
     return {
-      type: 'matcha',
+      type: "matcha",
       files: { acousticModel, vocoder },
       tokensPath: tokens,
     };
   }
 
   // Matcha by hint (model.onnx + tokens.txt when folder name says matcha)
-  if (hint.includes('matcha') && vocoder) {
-    const model = findFirst(onnx, /model/i) ?? onnx[0] ?? '';
+  if (hint.includes("matcha") && vocoder) {
+    const model = findFirst(onnx, /model/i) ?? onnx[0] ?? "";
     return {
-      type: 'matcha',
+      type: "matcha",
       files: { acousticModel: model, vocoder },
       tokensPath: tokens,
     };
@@ -255,14 +254,14 @@ export async function detectTtsModel(
   if (singleModel) {
     const lexicon = findFirst(allFiles, /\blexicon\.txt$/i);
     return {
-      type: 'vits',
+      type: "vits",
       files: { model: singleModel, ...(lexicon && { lexicon }) },
       tokensPath: tokens,
     };
   }
 
   return {
-    type: 'auto',
+    type: "auto",
     files: {},
     tokensPath: tokens,
   };

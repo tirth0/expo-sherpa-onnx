@@ -1,7 +1,7 @@
-import { EventEmitter, type Subscription } from 'expo-modules-core';
+import { EventEmitter, type Subscription } from "expo-modules-core";
 
-import ExpoSherpaOnnxModule from './ExpoSherpaOnnxModule';
-import type { OfflineTtsConfig, GeneratedAudio } from './ExpoSherpaOnnx.types';
+import ExpoSherpaOnnxModule from "./ExpoSherpaOnnxModule";
+import type { OfflineTtsConfig, GeneratedAudio } from "./ExpoSherpaOnnx.types";
 
 const emitter = new EventEmitter(ExpoSherpaOnnxModule);
 
@@ -72,7 +72,7 @@ export async function createTTS(
       sid = 0,
       speed = 1.0
     ): Promise<GeneratedAudio> {
-      if (destroyed) throw new Error('OfflineTTSEngine has been destroyed');
+      if (destroyed) throw new Error("OfflineTTSEngine has been destroyed");
       return ExpoSherpaOnnxModule.offlineTtsGenerate(
         result.handle,
         text,
@@ -87,14 +87,14 @@ export async function createTTS(
       sid = 0,
       speed = 1.0
     ): Promise<void> {
-      if (destroyed) throw new Error('OfflineTTSEngine has been destroyed');
+      if (destroyed) throw new Error("OfflineTTSEngine has been destroyed");
       const requestId = `tts_${++requestCounter}_${Date.now()}`;
 
       const subscriptions: Subscription[] = [];
 
       return new Promise<void>((resolve, reject) => {
         subscriptions.push(
-          emitter.addListener('ttsChunk', (event: TtsChunkEvent) => {
+          emitter.addListener("ttsChunk", (event: TtsChunkEvent) => {
             if (event.requestId === requestId) {
               callbacks.onChunk(event.samples);
             }
@@ -102,7 +102,7 @@ export async function createTTS(
         );
 
         subscriptions.push(
-          emitter.addListener('ttsComplete', (event: TtsCompleteEvent) => {
+          emitter.addListener("ttsComplete", (event: TtsCompleteEvent) => {
             if (event.requestId === requestId) {
               cleanup();
               callbacks.onComplete?.(event.sampleRate);
@@ -112,7 +112,7 @@ export async function createTTS(
         );
 
         subscriptions.push(
-          emitter.addListener('ttsError', (event: TtsErrorEvent) => {
+          emitter.addListener("ttsError", (event: TtsErrorEvent) => {
             if (event.requestId === requestId) {
               cleanup();
               const msg = event.error;

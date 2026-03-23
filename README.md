@@ -7,7 +7,7 @@
 ![platforms](https://img.shields.io/badge/platforms-android%20%7C%20ios-lightgrey)
 ![tests](https://img.shields.io/badge/tests-316%20passed-brightgreen)
 ![statements](https://img.shields.io/badge/coverage%3A%20statements-87.34%25-yellow)
-![lines](https://img.shields.io/badge/coverage%3A%20lines-87.89%25-yellow)
+![lines](https://img.shields.io/badge/coverage%3A%20lines-87.01%25-yellow)
 ![functions](https://img.shields.io/badge/coverage%3A%20functions-92.42%25-brightgreen)
 ![branches](https://img.shields.io/badge/coverage%3A%20branches-60.6%25-orange)
 
@@ -206,7 +206,7 @@ const audio = await engine.generate("Hello world", 0, 1.0);
 const segments = await vad.processFile("/path/to/audio.wav");
 for (const seg of segments) {
   console.log(
-    `Speech at sample ${seg.start}, duration: ${seg.samples.length} samples`,
+    `Speech at sample ${seg.start}, duration: ${seg.samples.length} samples`
   );
 }
 ```
@@ -250,7 +250,7 @@ for (const seg of segments) {
 ```typescript
 // File-based (single native round-trip)
 const embedding = await extractor.computeEmbeddingFromFile(
-  "/path/to/speaker.wav",
+  "/path/to/speaker.wav"
 );
 await manager.add("Alice", embedding);
 ```
@@ -289,7 +289,7 @@ const segments = await engine.processFile("/path/to/meeting.wav");
 const asrEngine = await createSTT(asrConfig);
 const transcript = await engine.transcribeAndDiarizeFile(
   asrEngine.handle,
-  "/path/to/meeting.wav",
+  "/path/to/meeting.wav"
 );
 // transcript: [{ speaker: 0, start: 0.0, end: 2.5, text: "Hello everyone" }, ...]
 ```

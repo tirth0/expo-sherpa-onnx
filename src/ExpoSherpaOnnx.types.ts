@@ -9,7 +9,7 @@ export type VersionInfo = {
 };
 
 export type ModelPathConfig = {
-  type: 'asset' | 'file' | 'auto';
+  type: "asset" | "file" | "auto";
   path: string;
 };
 
@@ -593,34 +593,34 @@ export type DenoisedAudio = {
 // =============================================================================
 
 export type SttModelType =
-  | 'transducer'
-  | 'paraformer'
-  | 'whisper'
-  | 'sense_voice'
-  | 'nemo_ctc'
-  | 'wenet_ctc'
-  | 'zipformer_ctc'
-  | 'moonshine'
-  | 'funasr_nano'
-  | 'fire_red_asr'
-  | 'dolphin'
-  | 'canary'
-  | 'omnilingual'
-  | 'medasr'
-  | 'telespeech_ctc'
-  | 'nemo_transducer'
-  | 'tone_ctc'
-  | 'auto';
+  | "transducer"
+  | "paraformer"
+  | "whisper"
+  | "sense_voice"
+  | "nemo_ctc"
+  | "wenet_ctc"
+  | "zipformer_ctc"
+  | "moonshine"
+  | "funasr_nano"
+  | "fire_red_asr"
+  | "dolphin"
+  | "canary"
+  | "omnilingual"
+  | "medasr"
+  | "telespeech_ctc"
+  | "nemo_transducer"
+  | "tone_ctc"
+  | "auto";
 
 export type TtsModelType =
-  | 'vits'
-  | 'matcha'
-  | 'kokoro'
-  | 'kitten'
-  | 'pocket'
-  | 'zipvoice'
-  | 'supertonic'
-  | 'auto';
+  | "vits"
+  | "matcha"
+  | "kokoro"
+  | "kitten"
+  | "pocket"
+  | "zipvoice"
+  | "supertonic"
+  | "auto";
 
 export type DetectedSttModel = {
   type: SttModelType;

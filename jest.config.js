@@ -1,12 +1,12 @@
-const preset = require('expo-module-scripts/jest-preset');
+const preset = require("expo-module-scripts/jest-preset");
 
 function patchProject(project) {
   if (!project.transform) return project;
   const newTransform = {};
   for (const [pattern, transformer] of Object.entries(project.transform)) {
-    if (Array.isArray(transformer) && transformer[0] === 'ts-jest') {
+    if (Array.isArray(transformer) && transformer[0] === "ts-jest") {
       newTransform[pattern] = [
-        'ts-jest',
+        "ts-jest",
         { ...transformer[1], diagnostics: false },
       ];
     } else {
@@ -20,10 +20,10 @@ const nativeOnly = preset.projects
   ? preset.projects
       .filter((p) => {
         const name =
-          typeof p.displayName === 'string'
+          typeof p.displayName === "string"
             ? p.displayName
             : p.displayName?.name;
-        return name === 'iOS' || name === 'Android';
+        return name === "iOS" || name === "Android";
       })
       .map(patchProject)
   : [];

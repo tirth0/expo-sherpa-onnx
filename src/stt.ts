@@ -1,11 +1,11 @@
-import ExpoSherpaOnnxModule from './ExpoSherpaOnnxModule';
+import ExpoSherpaOnnxModule from "./ExpoSherpaOnnxModule";
 import type {
   OfflineRecognizerConfig,
   OfflineRecognizerResult,
   OnlineRecognizerConfig,
   OnlineRecognizerResult,
   WaveData,
-} from './ExpoSherpaOnnx.types';
+} from "./ExpoSherpaOnnx.types";
 
 // =============================================================================
 // Offline STT Engine
@@ -38,7 +38,7 @@ export async function createSTT(
       samples: number[],
       sampleRate = 16000
     ): Promise<OfflineRecognizerResult> {
-      if (destroyed) throw new Error('OfflineSTTEngine has been destroyed');
+      if (destroyed) throw new Error("OfflineSTTEngine has been destroyed");
       return ExpoSherpaOnnxModule.offlineRecognizerDecode(
         handle,
         samples,
@@ -47,7 +47,7 @@ export async function createSTT(
     },
 
     async transcribeFile(filePath: string): Promise<OfflineRecognizerResult> {
-      if (destroyed) throw new Error('OfflineSTTEngine has been destroyed');
+      if (destroyed) throw new Error("OfflineSTTEngine has been destroyed");
       return ExpoSherpaOnnxModule.offlineRecognizerDecodeFile(handle, filePath);
     },
 
@@ -84,10 +84,9 @@ export interface OnlineSTTEngine {
 export async function createStreamingSTT(
   config: OnlineRecognizerConfig
 ): Promise<OnlineSTTEngine> {
-  const recognizerHandle =
-    await ExpoSherpaOnnxModule.createOnlineRecognizer(
-      config as unknown as Record<string, unknown>
-    );
+  const recognizerHandle = await ExpoSherpaOnnxModule.createOnlineRecognizer(
+    config as unknown as Record<string, unknown>
+  );
   let destroyed = false;
 
   return {
@@ -95,8 +94,8 @@ export async function createStreamingSTT(
       return recognizerHandle;
     },
 
-    async createStream(hotwords = ''): Promise<OnlineSTTStream> {
-      if (destroyed) throw new Error('OnlineSTTEngine has been destroyed');
+    async createStream(hotwords = ""): Promise<OnlineSTTStream> {
+      if (destroyed) throw new Error("OnlineSTTEngine has been destroyed");
       const streamHandle = await ExpoSherpaOnnxModule.createOnlineStream(
         recognizerHandle,
         hotwords
@@ -113,7 +112,7 @@ export async function createStreamingSTT(
           sampleRate = 16000
         ): Promise<void> {
           if (streamDestroyed)
-            throw new Error('OnlineSTTStream has been destroyed');
+            throw new Error("OnlineSTTStream has been destroyed");
           await ExpoSherpaOnnxModule.onlineStreamAcceptWaveform(
             streamHandle,
             samples,
@@ -123,13 +122,13 @@ export async function createStreamingSTT(
 
         async inputFinished(): Promise<void> {
           if (streamDestroyed)
-            throw new Error('OnlineSTTStream has been destroyed');
+            throw new Error("OnlineSTTStream has been destroyed");
           await ExpoSherpaOnnxModule.onlineStreamInputFinished(streamHandle);
         },
 
         async decode(): Promise<void> {
           if (streamDestroyed)
-            throw new Error('OnlineSTTStream has been destroyed');
+            throw new Error("OnlineSTTStream has been destroyed");
           await ExpoSherpaOnnxModule.onlineRecognizerDecode(
             recognizerHandle,
             streamHandle
@@ -138,7 +137,7 @@ export async function createStreamingSTT(
 
         async isReady(): Promise<boolean> {
           if (streamDestroyed)
-            throw new Error('OnlineSTTStream has been destroyed');
+            throw new Error("OnlineSTTStream has been destroyed");
           return ExpoSherpaOnnxModule.onlineRecognizerIsReady(
             recognizerHandle,
             streamHandle
@@ -147,7 +146,7 @@ export async function createStreamingSTT(
 
         async isEndpoint(): Promise<boolean> {
           if (streamDestroyed)
-            throw new Error('OnlineSTTStream has been destroyed');
+            throw new Error("OnlineSTTStream has been destroyed");
           return ExpoSherpaOnnxModule.onlineRecognizerIsEndpoint(
             recognizerHandle,
             streamHandle
@@ -156,7 +155,7 @@ export async function createStreamingSTT(
 
         async getResult(): Promise<OnlineRecognizerResult> {
           if (streamDestroyed)
-            throw new Error('OnlineSTTStream has been destroyed');
+            throw new Error("OnlineSTTStream has been destroyed");
           return ExpoSherpaOnnxModule.onlineRecognizerGetResult(
             recognizerHandle,
             streamHandle
@@ -165,7 +164,7 @@ export async function createStreamingSTT(
 
         async reset(): Promise<void> {
           if (streamDestroyed)
-            throw new Error('OnlineSTTStream has been destroyed');
+            throw new Error("OnlineSTTStream has been destroyed");
           await ExpoSherpaOnnxModule.onlineRecognizerReset(
             recognizerHandle,
             streamHandle

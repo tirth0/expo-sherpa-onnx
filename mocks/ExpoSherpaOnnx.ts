@@ -26,15 +26,15 @@ export function _getDestroyedStreams(): ReadonlySet<number> {
 }
 
 export function getVersion(): string {
-  return '1.0.0';
+  return "1.0.0";
 }
 
 export function getGitSha1(): string {
-  return 'mock-sha1-abc123';
+  return "mock-sha1-abc123";
 }
 
 export function getGitDate(): string {
-  return '2025-01-01';
+  return "2025-01-01";
 }
 
 export function getVersionInfo() {
@@ -47,9 +47,9 @@ export function getVersionInfo() {
 
 export function getAppPaths() {
   return {
-    documentsDir: '/mock/Documents',
-    cacheDir: '/mock/Caches',
-    modelsDir: '/mock/Documents/models',
+    documentsDir: "/mock/Documents",
+    cacheDir: "/mock/Caches",
+    modelsDir: "/mock/Documents/models",
   };
 }
 
@@ -57,7 +57,7 @@ export async function resolveModelPath(config: {
   type: string;
   path: string;
 }): Promise<string> {
-  if (config.type === 'file') {
+  if (config.type === "file") {
     return config.path;
   }
   return `/mock/resolved/${config.path}`;
@@ -67,7 +67,7 @@ export async function listModelsAtPath(
   _path: string,
   _recursive: boolean
 ): Promise<string[]> {
-  return ['model.onnx', 'tokens.txt', 'config.json'];
+  return ["model.onnx", "tokens.txt", "config.json"];
 }
 
 // Offline ASR mocks
@@ -86,12 +86,12 @@ export async function offlineRecognizerDecode(
   if (destroyedOfflineRecognizers.has(handle))
     throw new Error(`Native: offline recognizer ${handle} already destroyed`);
   return {
-    text: 'mock transcription',
-    tokens: ['mock', 'transcription'],
+    text: "mock transcription",
+    tokens: ["mock", "transcription"],
     timestamps: [0.0, 0.5],
-    lang: 'en',
-    emotion: '',
-    event: '',
+    lang: "en",
+    emotion: "",
+    event: "",
     durations: [0.5, 0.5],
   };
 }
@@ -103,19 +103,17 @@ export async function offlineRecognizerDecodeFile(
   if (destroyedOfflineRecognizers.has(handle))
     throw new Error(`Native: offline recognizer ${handle} already destroyed`);
   return {
-    text: 'mock file transcription',
-    tokens: ['mock', 'file', 'transcription'],
+    text: "mock file transcription",
+    tokens: ["mock", "file", "transcription"],
     timestamps: [0.0, 0.3, 0.6],
-    lang: 'en',
-    emotion: '',
-    event: '',
+    lang: "en",
+    emotion: "",
+    event: "",
     durations: [0.3, 0.3, 0.3],
   };
 }
 
-export async function destroyOfflineRecognizer(
-  handle: number
-): Promise<void> {
+export async function destroyOfflineRecognizer(handle: number): Promise<void> {
   destroyedOfflineRecognizers.add(handle);
 }
 
@@ -132,7 +130,9 @@ export async function createOnlineStream(
   _hotwords: string
 ): Promise<number> {
   if (destroyedOnlineRecognizers.has(recognizerHandle))
-    throw new Error(`Native: online recognizer ${recognizerHandle} already destroyed`);
+    throw new Error(
+      `Native: online recognizer ${recognizerHandle} already destroyed`
+    );
   const h = ++handleCounter;
   streamToRecognizer.set(h, recognizerHandle);
   return h;
@@ -165,7 +165,9 @@ export async function onlineRecognizerDecode(
   streamHandle: number
 ): Promise<void> {
   if (destroyedOnlineRecognizers.has(recognizerHandle))
-    throw new Error(`Native: online recognizer ${recognizerHandle} already destroyed`);
+    throw new Error(
+      `Native: online recognizer ${recognizerHandle} already destroyed`
+    );
   assertStreamAlive(streamHandle);
 }
 
@@ -174,7 +176,9 @@ export async function onlineRecognizerIsReady(
   streamHandle: number
 ): Promise<boolean> {
   if (destroyedOnlineRecognizers.has(recognizerHandle))
-    throw new Error(`Native: online recognizer ${recognizerHandle} already destroyed`);
+    throw new Error(
+      `Native: online recognizer ${recognizerHandle} already destroyed`
+    );
   assertStreamAlive(streamHandle);
   return true;
 }
@@ -184,7 +188,9 @@ export async function onlineRecognizerIsEndpoint(
   streamHandle: number
 ): Promise<boolean> {
   if (destroyedOnlineRecognizers.has(recognizerHandle))
-    throw new Error(`Native: online recognizer ${recognizerHandle} already destroyed`);
+    throw new Error(
+      `Native: online recognizer ${recognizerHandle} already destroyed`
+    );
   assertStreamAlive(streamHandle);
   return false;
 }
@@ -194,11 +200,13 @@ export async function onlineRecognizerGetResult(
   streamHandle: number
 ) {
   if (destroyedOnlineRecognizers.has(recognizerHandle))
-    throw new Error(`Native: online recognizer ${recognizerHandle} already destroyed`);
+    throw new Error(
+      `Native: online recognizer ${recognizerHandle} already destroyed`
+    );
   assertStreamAlive(streamHandle);
   return {
-    text: 'mock streaming result',
-    tokens: ['mock', 'streaming', 'result'],
+    text: "mock streaming result",
+    tokens: ["mock", "streaming", "result"],
     timestamps: [0.0, 0.3, 0.6],
   };
 }
@@ -208,13 +216,13 @@ export async function onlineRecognizerReset(
   streamHandle: number
 ): Promise<void> {
   if (destroyedOnlineRecognizers.has(recognizerHandle))
-    throw new Error(`Native: online recognizer ${recognizerHandle} already destroyed`);
+    throw new Error(
+      `Native: online recognizer ${recognizerHandle} already destroyed`
+    );
   assertStreamAlive(streamHandle);
 }
 
-export async function destroyOnlineStream(
-  streamHandle: number
-): Promise<void> {
+export async function destroyOnlineStream(streamHandle: number): Promise<void> {
   destroyedOnlineStreams.add(streamHandle);
 }
 
@@ -262,9 +270,7 @@ export async function offlineTtsGenerateStreaming(
     throw new Error(`Native: TTS engine ${handle} already destroyed`);
 }
 
-export async function destroyOfflineTts(
-  handle: number
-): Promise<void> {
+export async function destroyOfflineTts(handle: number): Promise<void> {
   destroyedTtsEngines.add(handle);
 }
 
@@ -280,7 +286,7 @@ export async function readWaveFile(_filePath: string) {
 // Hardware acceleration mock
 
 export function getAvailableProviders(): string[] {
-  return ['cpu', 'mock_provider'];
+  return ["cpu", "mock_provider"];
 }
 
 // VAD mocks
@@ -403,7 +409,7 @@ export async function keywordSpotterGetResult(
   _spotterHandle: number,
   _streamHandle: number
 ): Promise<{ keyword: string; tokens: string[]; timestamps: number[] }> {
-  return { keyword: '', tokens: [], timestamps: [] };
+  return { keyword: "", tokens: [], timestamps: [] };
 }
 
 export async function keywordSpotterReset(
@@ -477,7 +483,9 @@ export async function speakerExtractorComputeFromFile(
   _filePath: string
 ): Promise<number[]> {
   if (destroyedSpeakerExtractors.has(extractorHandle))
-    throw new Error(`Native: speaker extractor ${extractorHandle} already destroyed`);
+    throw new Error(
+      `Native: speaker extractor ${extractorHandle} already destroyed`
+    );
   return new Array(192).fill(0).map(() => Math.random() * 2 - 1);
 }
 
@@ -552,8 +560,8 @@ export async function speakerManagerSearch(
   if (destroyedManagers.has(handle))
     throw new Error(`Native: speaker manager ${handle} already destroyed`);
   const speakers = managerSpeakers.get(handle);
-  if (!speakers || speakers.size === 0) return '';
-  return speakers.keys().next().value ?? '';
+  if (!speakers || speakers.size === 0) return "";
+  return speakers.keys().next().value ?? "";
 }
 
 export async function speakerManagerVerify(
@@ -655,15 +663,21 @@ export async function transcribeAndDiarizeFile(
   diarizationHandle: number,
   asrHandle: number,
   _filePath: string
-): Promise<Array<{ speaker: number; start: number; end: number; text: string }>> {
+): Promise<
+  Array<{ speaker: number; start: number; end: number; text: string }>
+> {
   if (destroyedDiarizations.has(diarizationHandle))
-    throw new Error(`Native: diarization ${diarizationHandle} already destroyed`);
+    throw new Error(
+      `Native: diarization ${diarizationHandle} already destroyed`
+    );
   if (destroyedOfflineRecognizers.has(asrHandle))
-    throw new Error(`Native: offline recognizer ${asrHandle} already destroyed`);
+    throw new Error(
+      `Native: offline recognizer ${asrHandle} already destroyed`
+    );
   return [
-    { speaker: 0, start: 0.0, end: 1.5, text: 'Hello from speaker zero.' },
-    { speaker: 1, start: 1.8, end: 3.2, text: 'Hi, this is speaker one.' },
-    { speaker: 0, start: 3.5, end: 5.0, text: 'Back to speaker zero again.' },
+    { speaker: 0, start: 0.0, end: 1.5, text: "Hello from speaker zero." },
+    { speaker: 1, start: 1.8, end: 3.2, text: "Hi, this is speaker one." },
+    { speaker: 0, start: 3.5, end: 5.0, text: "Back to speaker zero again." },
   ];
 }
 

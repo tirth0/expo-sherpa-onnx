@@ -31,10 +31,16 @@ export const cacheDirectory = 0;
 
 export const bundleDirectory = 0;
 
-export async function getInfoAsync(url: URL, options: InfoOptions): Promise<any> {}
+export async function getInfoAsync(
+  url: URL,
+  options: InfoOptions
+): Promise<any> {}
 
-export async function readAsStringAsync(url: URL, options: ReadingOptions): Promise<string> {
-  return '';
+export async function readAsStringAsync(
+  url: URL,
+  options: ReadingOptions
+): Promise<string> {
+  return "";
 }
 
 export async function writeAsStringAsync(
@@ -43,13 +49,19 @@ export async function writeAsStringAsync(
   options: WritingOptions
 ): Promise<any> {}
 
-export async function deleteAsync(url: URL, options: DeletingOptions): Promise<any> {}
+export async function deleteAsync(
+  url: URL,
+  options: DeletingOptions
+): Promise<any> {}
 
 export async function moveAsync(options: RelocatingOptions): Promise<any> {}
 
 export async function copyAsync(options: RelocatingOptions): Promise<any> {}
 
-export async function makeDirectoryAsync(url: URL, options: MakeDirectoryOptions): Promise<any> {}
+export async function makeDirectoryAsync(
+  url: URL,
+  options: MakeDirectoryOptions
+): Promise<any> {}
 
 export async function readDirectoryAsync(url: URL): Promise<string[]> {
   return [];

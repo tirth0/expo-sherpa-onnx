@@ -13,7 +13,10 @@ export type ContentInset = any;
 
 export type ContentInsetAdjustmentBehavior = any;
 
-export async function evalJsForWebViewAsync(webViewId: number, source: string): Promise<any> {}
+export async function evalJsForWebViewAsync(
+  webViewId: number,
+  source: string
+): Promise<any> {}
 
 export type ViewProps = {
   source: DomWebViewSource;

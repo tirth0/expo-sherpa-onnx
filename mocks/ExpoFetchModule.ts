@@ -11,7 +11,10 @@ export class NativeResponse {
   async startStreaming(response: NativeResponse): Promise<Data | undefined> {
     return;
   }
-  async cancelStreaming(response: NativeResponse, reason: string): Promise<any> {}
+  async cancelStreaming(
+    response: NativeResponse,
+    reason: string
+  ): Promise<any> {}
   async arrayBuffer(response: NativeResponse): Promise<any> {}
   async text(response: NativeResponse): Promise<any> {}
 }

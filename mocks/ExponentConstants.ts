@@ -6,5 +6,5 @@
  *  */
 
 export async function getWebViewUserAgentAsync(): Promise<string | undefined> {
-  return '';
+  return "";
 }

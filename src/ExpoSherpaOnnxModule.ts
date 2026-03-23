@@ -1,4 +1,4 @@
-import { requireNativeModule } from 'expo';
+import { requireNativeModule } from "expo";
 
 import type {
   ModelPathConfig,
@@ -9,7 +9,7 @@ import type {
   GeneratedAudio,
   SpeechSegment,
   KeywordSpotterResult,
-} from './ExpoSherpaOnnx.types';
+} from "./ExpoSherpaOnnx.types";
 
 export type TtsCreationResult = {
   handle: number;
@@ -86,9 +86,7 @@ export interface ExpoSherpaOnnxNativeModule {
   getAvailableProviders(): string[];
 
   // Offline TTS
-  createOfflineTts(
-    config: Record<string, unknown>
-  ): Promise<TtsCreationResult>;
+  createOfflineTts(config: Record<string, unknown>): Promise<TtsCreationResult>;
   offlineTtsGenerate(
     handle: number,
     text: string,
@@ -124,10 +122,7 @@ export interface ExpoSherpaOnnxNativeModule {
 
   // Keyword Spotting
   createKeywordSpotter(config: Record<string, unknown>): Promise<number>;
-  createKeywordStream(
-    spotterHandle: number,
-    keywords: string
-  ): Promise<number>;
+  createKeywordStream(spotterHandle: number, keywords: string): Promise<number>;
   keywordStreamAcceptWaveform(
     streamHandle: number,
     samples: number[],
@@ -153,7 +148,9 @@ export interface ExpoSherpaOnnxNativeModule {
   destroyKeywordSpotter(spotterHandle: number): Promise<void>;
 
   // Speaker Embedding Extractor
-  createSpeakerEmbeddingExtractor(config: Record<string, unknown>): Promise<number>;
+  createSpeakerEmbeddingExtractor(
+    config: Record<string, unknown>
+  ): Promise<number>;
   speakerExtractorCreateStream(extractorHandle: number): Promise<number>;
   speakerStreamAcceptWaveform(
     streamHandle: number,
@@ -206,7 +203,9 @@ export interface ExpoSherpaOnnxNativeModule {
   destroySpeakerEmbeddingManager(handle: number): Promise<void>;
 
   // Offline Speaker Diarization
-  createOfflineSpeakerDiarization(config: Record<string, unknown>): Promise<number>;
+  createOfflineSpeakerDiarization(
+    config: Record<string, unknown>
+  ): Promise<number>;
   offlineSpeakerDiarizationGetSampleRate(handle: number): Promise<number>;
   offlineSpeakerDiarizationProcess(
     handle: number,
@@ -220,7 +219,9 @@ export interface ExpoSherpaOnnxNativeModule {
     diarizationHandle: number,
     asrHandle: number,
     filePath: string
-  ): Promise<Array<{ speaker: number; start: number; end: number; text: string }>>;
+  ): Promise<
+    Array<{ speaker: number; start: number; end: number; text: string }>
+  >;
   offlineSpeakerDiarizationSetConfig(
     handle: number,
     config: Record<string, unknown>
@@ -232,5 +233,5 @@ export interface ExpoSherpaOnnxNativeModule {
 }
 
 export default requireNativeModule<ExpoSherpaOnnxNativeModule>(
-  'ExpoSherpaOnnx'
+  "ExpoSherpaOnnx"
 );

@@ -14,11 +14,11 @@ export const documentsDir = 0;
 export function installOnUIRuntime(): any {}
 
 export function uuidv4(): string {
-  return '';
+  return "";
 }
 
 export function uuidv5(name: string, namespace: string): string {
-  return '';
+  return "";
 }
 
 export function getViewConfig(

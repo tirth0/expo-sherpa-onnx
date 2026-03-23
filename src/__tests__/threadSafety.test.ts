@@ -1,9 +1,11 @@
 /// <reference types="jest" />
-import { createSTT, createStreamingSTT } from '../stt';
-import type { OnlineSTTStream } from '../stt';
+import { createSTT, createStreamingSTT } from "../stt";
+import type { OnlineSTTStream } from "../stt";
 
 // Access mock internals to verify handle state
-const mock = jest.requireActual('../../mocks/ExpoSherpaOnnx') as typeof import('../../mocks/ExpoSherpaOnnx');
+const mock = jest.requireActual(
+  "../../mocks/ExpoSherpaOnnx"
+) as typeof import("../../mocks/ExpoSherpaOnnx");
 
 beforeEach(() => {
   mock._resetMockState();
@@ -13,15 +15,15 @@ beforeEach(() => {
 // Offline STT – lifecycle robustness
 // =============================================================================
 
-describe('Offline STT – thread safety / lifecycle', () => {
+describe("Offline STT – thread safety / lifecycle", () => {
   const offlineConfig = {
     modelConfig: {
-      whisper: { encoder: '/m/enc.onnx', decoder: '/m/dec.onnx' },
-      tokens: '/m/tokens.txt',
+      whisper: { encoder: "/m/enc.onnx", decoder: "/m/dec.onnx" },
+      tokens: "/m/tokens.txt",
     },
   };
 
-  it('double destroy is idempotent and never reaches native twice', async () => {
+  it("double destroy is idempotent and never reaches native twice", async () => {
     const engine = await createSTT(offlineConfig);
     await engine.destroy();
     await engine.destroy();
@@ -29,19 +31,23 @@ describe('Offline STT – thread safety / lifecycle', () => {
     expect(mock._getDestroyedOffline().has(engine.handle)).toBe(true);
   });
 
-  it('all operations throw after destroy – transcribeSamples', async () => {
+  it("all operations throw after destroy – transcribeSamples", async () => {
     const engine = await createSTT(offlineConfig);
     await engine.destroy();
-    await expect(engine.transcribeSamples([0.1], 16000)).rejects.toThrow('destroyed');
+    await expect(engine.transcribeSamples([0.1], 16000)).rejects.toThrow(
+      "destroyed"
+    );
   });
 
-  it('all operations throw after destroy – transcribeFile', async () => {
+  it("all operations throw after destroy – transcribeFile", async () => {
     const engine = await createSTT(offlineConfig);
     await engine.destroy();
-    await expect(engine.transcribeFile('/test.wav')).rejects.toThrow('destroyed');
+    await expect(engine.transcribeFile("/test.wav")).rejects.toThrow(
+      "destroyed"
+    );
   });
 
-  it('concurrent destroy + transcribeSamples settles without unhandled errors', async () => {
+  it("concurrent destroy + transcribeSamples settles without unhandled errors", async () => {
     const engine = await createSTT(offlineConfig);
     const results = await Promise.allSettled([
       engine.destroy(),
@@ -50,32 +56,32 @@ describe('Offline STT – thread safety / lifecycle', () => {
     ]);
 
     const destroyResult = results[0];
-    expect(destroyResult.status).toBe('fulfilled');
+    expect(destroyResult.status).toBe("fulfilled");
 
     for (const r of results.slice(1)) {
-      if (r.status === 'rejected') {
+      if (r.status === "rejected") {
         expect(r.reason.message).toMatch(/destroyed/);
       }
     }
   });
 
-  it('concurrent destroy + transcribeFile settles without unhandled errors', async () => {
+  it("concurrent destroy + transcribeFile settles without unhandled errors", async () => {
     const engine = await createSTT(offlineConfig);
     const results = await Promise.allSettled([
       engine.destroy(),
-      engine.transcribeFile('/a.wav'),
-      engine.transcribeFile('/b.wav'),
+      engine.transcribeFile("/a.wav"),
+      engine.transcribeFile("/b.wav"),
     ]);
 
-    expect(results[0].status).toBe('fulfilled');
+    expect(results[0].status).toBe("fulfilled");
     for (const r of results.slice(1)) {
-      if (r.status === 'rejected') {
+      if (r.status === "rejected") {
         expect(r.reason.message).toMatch(/destroyed/);
       }
     }
   });
 
-  it('rapid create-destroy cycles do not leak or crash', async () => {
+  it("rapid create-destroy cycles do not leak or crash", async () => {
     const handles: number[] = [];
     for (let i = 0; i < 50; i++) {
       const engine = await createSTT(offlineConfig);
@@ -89,7 +95,7 @@ describe('Offline STT – thread safety / lifecycle', () => {
     }
   });
 
-  it('interleaved create-use-destroy cycles work correctly', async () => {
+  it("interleaved create-use-destroy cycles work correctly", async () => {
     const engine1 = await createSTT(offlineConfig);
     const engine2 = await createSTT(offlineConfig);
 
@@ -100,7 +106,9 @@ describe('Offline STT – thread safety / lifecycle', () => {
 
     const r2 = await engine2.transcribeSamples([0.2], 16000);
     expect(r2.text.length).toBeGreaterThan(0);
-    await expect(engine1.transcribeSamples([0.3], 16000)).rejects.toThrow('destroyed');
+    await expect(engine1.transcribeSamples([0.3], 16000)).rejects.toThrow(
+      "destroyed"
+    );
 
     await engine2.destroy();
   });
@@ -110,20 +118,20 @@ describe('Offline STT – thread safety / lifecycle', () => {
 // Online STT – lifecycle robustness
 // =============================================================================
 
-describe('Online STT – thread safety / lifecycle', () => {
+describe("Online STT – thread safety / lifecycle", () => {
   const onlineConfig = {
     modelConfig: {
       transducer: {
-        encoder: '/m/enc.onnx',
-        decoder: '/m/dec.onnx',
-        joiner: '/m/joiner.onnx',
+        encoder: "/m/enc.onnx",
+        decoder: "/m/dec.onnx",
+        joiner: "/m/joiner.onnx",
       },
-      tokens: '/m/tokens.txt',
+      tokens: "/m/tokens.txt",
     },
     enableEndpoint: true,
   };
 
-  it('engine double destroy is idempotent', async () => {
+  it("engine double destroy is idempotent", async () => {
     const engine = await createStreamingSTT(onlineConfig);
     await engine.destroy();
     await engine.destroy();
@@ -131,7 +139,7 @@ describe('Online STT – thread safety / lifecycle', () => {
     expect(mock._getDestroyedOnline().has(engine.handle)).toBe(true);
   });
 
-  it('stream double destroy is idempotent', async () => {
+  it("stream double destroy is idempotent", async () => {
     const engine = await createStreamingSTT(onlineConfig);
     const stream = await engine.createStream();
     await stream.destroy();
@@ -141,29 +149,31 @@ describe('Online STT – thread safety / lifecycle', () => {
     await engine.destroy();
   });
 
-  it('createStream throws after engine destroy', async () => {
+  it("createStream throws after engine destroy", async () => {
     const engine = await createStreamingSTT(onlineConfig);
     await engine.destroy();
-    await expect(engine.createStream()).rejects.toThrow('destroyed');
+    await expect(engine.createStream()).rejects.toThrow("destroyed");
   });
 
-  it('all stream operations throw after stream destroy', async () => {
+  it("all stream operations throw after stream destroy", async () => {
     const engine = await createStreamingSTT(onlineConfig);
     const stream = await engine.createStream();
     await stream.destroy();
 
-    await expect(stream.acceptWaveform([0.1], 16000)).rejects.toThrow('destroyed');
-    await expect(stream.inputFinished()).rejects.toThrow('destroyed');
-    await expect(stream.decode()).rejects.toThrow('destroyed');
-    await expect(stream.isReady()).rejects.toThrow('destroyed');
-    await expect(stream.isEndpoint()).rejects.toThrow('destroyed');
-    await expect(stream.getResult()).rejects.toThrow('destroyed');
-    await expect(stream.reset()).rejects.toThrow('destroyed');
+    await expect(stream.acceptWaveform([0.1], 16000)).rejects.toThrow(
+      "destroyed"
+    );
+    await expect(stream.inputFinished()).rejects.toThrow("destroyed");
+    await expect(stream.decode()).rejects.toThrow("destroyed");
+    await expect(stream.isReady()).rejects.toThrow("destroyed");
+    await expect(stream.isEndpoint()).rejects.toThrow("destroyed");
+    await expect(stream.getResult()).rejects.toThrow("destroyed");
+    await expect(stream.reset()).rejects.toThrow("destroyed");
 
     await engine.destroy();
   });
 
-  it('concurrent destroy + stream operations settle without unhandled errors', async () => {
+  it("concurrent destroy + stream operations settle without unhandled errors", async () => {
     const engine = await createStreamingSTT(onlineConfig);
     const stream = await engine.createStream();
 
@@ -177,9 +187,9 @@ describe('Online STT – thread safety / lifecycle', () => {
       stream.reset(),
     ]);
 
-    expect(results[0].status).toBe('fulfilled');
+    expect(results[0].status).toBe("fulfilled");
     for (const r of results.slice(1)) {
-      if (r.status === 'rejected') {
+      if (r.status === "rejected") {
         expect(r.reason.message).toMatch(/destroyed/);
       }
     }
@@ -187,7 +197,7 @@ describe('Online STT – thread safety / lifecycle', () => {
     await engine.destroy();
   });
 
-  it('concurrent engine destroy + createStream settle without unhandled errors', async () => {
+  it("concurrent engine destroy + createStream settle without unhandled errors", async () => {
     const engine = await createStreamingSTT(onlineConfig);
 
     const results = await Promise.allSettled([
@@ -196,15 +206,15 @@ describe('Online STT – thread safety / lifecycle', () => {
       engine.createStream(),
     ]);
 
-    expect(results[0].status).toBe('fulfilled');
+    expect(results[0].status).toBe("fulfilled");
     for (const r of results.slice(1)) {
-      if (r.status === 'rejected') {
+      if (r.status === "rejected") {
         expect(r.reason.message).toMatch(/destroyed/);
       }
     }
   });
 
-  it('destroying engine does not crash if stream is still referenced (JS guard)', async () => {
+  it("destroying engine does not crash if stream is still referenced (JS guard)", async () => {
     const engine = await createStreamingSTT(onlineConfig);
     const stream = await engine.createStream();
 
@@ -220,7 +230,7 @@ describe('Online STT – thread safety / lifecycle', () => {
     expect(mock._getDestroyedStreams().has(stream.streamHandle)).toBe(true);
   });
 
-  it('multiple independent streams – destroying one does not affect others', async () => {
+  it("multiple independent streams – destroying one does not affect others", async () => {
     const engine = await createStreamingSTT(onlineConfig);
     const stream1 = await engine.createStream();
     const stream2 = await engine.createStream();
@@ -232,19 +242,21 @@ describe('Online STT – thread safety / lifecycle', () => {
 
     await stream1.destroy();
 
-    await expect(stream1.acceptWaveform([0.4], 16000)).rejects.toThrow('destroyed');
+    await expect(stream1.acceptWaveform([0.4], 16000)).rejects.toThrow(
+      "destroyed"
+    );
     await stream2.acceptWaveform([0.5], 16000);
     await stream3.acceptWaveform([0.6], 16000);
 
     const result2 = await stream2.getResult();
-    expect(typeof result2.text).toBe('string');
+    expect(typeof result2.text).toBe("string");
 
     await stream2.destroy();
     await stream3.destroy();
     await engine.destroy();
   });
 
-  it('rapid stream create-destroy cycles on same engine', async () => {
+  it("rapid stream create-destroy cycles on same engine", async () => {
     const engine = await createStreamingSTT(onlineConfig);
     const handles: number[] = [];
 
@@ -263,20 +275,20 @@ describe('Online STT – thread safety / lifecycle', () => {
     await engine.destroy();
   });
 
-  it('full lifecycle: create engine, create stream, feed audio, decode, get result, teardown', async () => {
+  it("full lifecycle: create engine, create stream, feed audio, decode, get result, teardown", async () => {
     const engine = await createStreamingSTT(onlineConfig);
     const stream = await engine.createStream();
 
     await stream.acceptWaveform([0.0, 0.1, -0.1, 0.05], 16000);
     const ready = await stream.isReady();
-    expect(typeof ready).toBe('boolean');
+    expect(typeof ready).toBe("boolean");
 
     await stream.decode();
     const result = await stream.getResult();
-    expect(typeof result.text).toBe('string');
+    expect(typeof result.text).toBe("string");
 
     const endpoint = await stream.isEndpoint();
-    expect(typeof endpoint).toBe('boolean');
+    expect(typeof endpoint).toBe("boolean");
 
     if (endpoint) {
       await stream.reset();
@@ -290,7 +302,7 @@ describe('Online STT – thread safety / lifecycle', () => {
     expect(mock._getDestroyedOnline().has(engine.handle)).toBe(true);
   });
 
-  it('rapid engine create-destroy cycles do not leak', async () => {
+  it("rapid engine create-destroy cycles do not leak", async () => {
     const handles: number[] = [];
     for (let i = 0; i < 30; i++) {
       const engine = await createStreamingSTT(onlineConfig);
@@ -311,20 +323,20 @@ describe('Online STT – thread safety / lifecycle', () => {
 // Correct teardown ordering (mirrors the fix in App.tsx)
 // =============================================================================
 
-describe('Teardown ordering – stream before engine', () => {
+describe("Teardown ordering – stream before engine", () => {
   const onlineConfig = {
     modelConfig: {
       transducer: {
-        encoder: '/m/enc.onnx',
-        decoder: '/m/dec.onnx',
-        joiner: '/m/joiner.onnx',
+        encoder: "/m/enc.onnx",
+        decoder: "/m/dec.onnx",
+        joiner: "/m/joiner.onnx",
       },
-      tokens: '/m/tokens.txt',
+      tokens: "/m/tokens.txt",
     },
     enableEndpoint: true,
   };
 
-  it('destroying stream then engine succeeds (correct order)', async () => {
+  it("destroying stream then engine succeeds (correct order)", async () => {
     const engine = await createStreamingSTT(onlineConfig);
     const stream = await engine.createStream();
 
@@ -336,7 +348,7 @@ describe('Teardown ordering – stream before engine', () => {
     expect(mock._getDestroyedOnline().has(engine.handle)).toBe(true);
   });
 
-  it('destroying engine then stream succeeds (reverse order – should not crash)', async () => {
+  it("destroying engine then stream succeeds (reverse order – should not crash)", async () => {
     const engine = await createStreamingSTT(onlineConfig);
     const stream = await engine.createStream();
 
@@ -348,7 +360,7 @@ describe('Teardown ordering – stream before engine', () => {
     expect(mock._getDestroyedStreams().has(stream.streamHandle)).toBe(true);
   });
 
-  it('concurrent stream + engine destroy settles cleanly', async () => {
+  it("concurrent stream + engine destroy settles cleanly", async () => {
     const engine = await createStreamingSTT(onlineConfig);
     const stream = await engine.createStream();
 
@@ -357,11 +369,11 @@ describe('Teardown ordering – stream before engine', () => {
       engine.destroy(),
     ]);
 
-    expect(results[0].status).toBe('fulfilled');
-    expect(results[1].status).toBe('fulfilled');
+    expect(results[0].status).toBe("fulfilled");
+    expect(results[1].status).toBe("fulfilled");
   });
 
-  it('multiple streams torn down concurrently with engine', async () => {
+  it("multiple streams torn down concurrently with engine", async () => {
     const engine = await createStreamingSTT(onlineConfig);
     const streams: OnlineSTTStream[] = [];
     for (let i = 0; i < 10; i++) {
@@ -374,7 +386,7 @@ describe('Teardown ordering – stream before engine', () => {
     ]);
 
     for (const r of results) {
-      expect(r.status).toBe('fulfilled');
+      expect(r.status).toBe("fulfilled");
     }
   });
 });
@@ -383,26 +395,26 @@ describe('Teardown ordering – stream before engine', () => {
 // Mixed offline + online – no cross-contamination
 // =============================================================================
 
-describe('Mixed offline + online engines – isolation', () => {
+describe("Mixed offline + online engines – isolation", () => {
   const offlineConfig = {
     modelConfig: {
-      whisper: { encoder: '/m/enc.onnx', decoder: '/m/dec.onnx' },
-      tokens: '/m/tokens.txt',
+      whisper: { encoder: "/m/enc.onnx", decoder: "/m/dec.onnx" },
+      tokens: "/m/tokens.txt",
     },
   };
   const onlineConfig = {
     modelConfig: {
       transducer: {
-        encoder: '/m/enc.onnx',
-        decoder: '/m/dec.onnx',
-        joiner: '/m/joiner.onnx',
+        encoder: "/m/enc.onnx",
+        decoder: "/m/dec.onnx",
+        joiner: "/m/joiner.onnx",
       },
-      tokens: '/m/tokens.txt',
+      tokens: "/m/tokens.txt",
     },
     enableEndpoint: true,
   };
 
-  it('destroying offline engine does not affect online engine', async () => {
+  it("destroying offline engine does not affect online engine", async () => {
     const offline = await createSTT(offlineConfig);
     const online = await createStreamingSTT(onlineConfig);
     const stream = await online.createStream();
@@ -411,13 +423,13 @@ describe('Mixed offline + online engines – isolation', () => {
 
     await stream.acceptWaveform([0.1], 16000);
     const result = await stream.getResult();
-    expect(typeof result.text).toBe('string');
+    expect(typeof result.text).toBe("string");
 
     await stream.destroy();
     await online.destroy();
   });
 
-  it('destroying online engine does not affect offline engine', async () => {
+  it("destroying online engine does not affect offline engine", async () => {
     const offline = await createSTT(offlineConfig);
     const online = await createStreamingSTT(onlineConfig);
 
@@ -429,7 +441,7 @@ describe('Mixed offline + online engines – isolation', () => {
     await offline.destroy();
   });
 
-  it('concurrent destruction of both engine types settles cleanly', async () => {
+  it("concurrent destruction of both engine types settles cleanly", async () => {
     const offline = await createSTT(offlineConfig);
     const online = await createStreamingSTT(onlineConfig);
     const stream = await online.createStream();
@@ -441,7 +453,7 @@ describe('Mixed offline + online engines – isolation', () => {
     ]);
 
     for (const r of results) {
-      expect(r.status).toBe('fulfilled');
+      expect(r.status).toBe("fulfilled");
     }
   });
 });
