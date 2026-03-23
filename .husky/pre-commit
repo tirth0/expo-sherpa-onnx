@@ -1,3 +1,9 @@
+STAGED=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(ts|tsx|js|jsx|json|md)$' || true)
+if [ -n "$STAGED" ]; then
+  echo "$STAGED" | xargs npx prettier --write
+  echo "$STAGED" | xargs git add
+fi
+
 npm run lint || exit 1
 
 npm test -- --coverage --coverageReporters json-summary --json --outputFile=coverage/test-results.json > /dev/null || exit 1

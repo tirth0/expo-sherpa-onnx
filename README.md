@@ -7,7 +7,7 @@
 ![platforms](https://img.shields.io/badge/platforms-android%20%7C%20ios-lightgrey)
 ![tests](https://img.shields.io/badge/tests-316%20passed-brightgreen)
 ![statements](https://img.shields.io/badge/coverage%3A%20statements-87.34%25-yellow)
-![lines](https://img.shields.io/badge/coverage%3A%20lines-87.81%25-yellow)
+![lines](https://img.shields.io/badge/coverage%3A%20lines-87.89%25-yellow)
 ![functions](https://img.shields.io/badge/coverage%3A%20functions-92.42%25-brightgreen)
 ![branches](https://img.shields.io/badge/coverage%3A%20branches-60.6%25-orange)
 
