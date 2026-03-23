@@ -18,6 +18,10 @@ cd expo-sherpa-onnx
 npm install
 ```
 
+To run the example app or test native changes, you also need the prebuilt
+binaries. See [Building Native Binaries](#building-native-binaries) below.
+TypeScript-only changes (src/, tests) do not require native binaries.
+
 ## Project Structure
 
 ```
@@ -135,6 +139,53 @@ Open an issue at [github.com/tirth0/expo-sherpa-onnx/issues](https://github.com/
 - Expo SDK and expo-sherpa-onnx version
 - Steps to reproduce
 - Relevant logs or error messages
+
+## Building Native Binaries
+
+The prebuilt `.xcframework` and `.so` binaries are **not** checked into git.
+They ship only in the npm tarball. To develop locally with native changes, you
+must build them from the upstream sherpa-onnx source.
+
+### Upstream version
+
+- **sherpa-onnx:** v1.12.29 (git sha1: `75022de`)
+- **Repository:** https://github.com/k2-fsa/sherpa-onnx
+
+### Prerequisites
+
+- CMake
+- Android NDK (for Android builds)
+- Xcode Command Line Tools (for iOS builds)
+
+### Android (jniLibs)
+
+```bash
+git clone https://github.com/k2-fsa/sherpa-onnx.git
+cd sherpa-onnx
+git checkout 75022de
+
+# Build for each ABI
+./build-android-arm64-v8a.sh
+./build-android-armv7-eabi.sh
+./build-android-x86-64.sh
+```
+
+Copy the resulting `libsherpa-onnx-jni.so` files into the module:
+
+- `android/src/main/jniLibs/arm64-v8a/`
+- `android/src/main/jniLibs/armeabi-v7a/`
+- `android/src/main/jniLibs/x86_64/`
+
+### iOS (xcframeworks)
+
+```bash
+cd sherpa-onnx
+git checkout 75022de
+
+./build-ios.sh
+```
+
+Copy the resulting `sherpa-onnx.xcframework` and `onnxruntime.xcframework` into `ios/`.
 
 ## License
 

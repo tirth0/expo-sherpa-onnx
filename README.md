@@ -31,6 +31,16 @@ Expo module wrapping [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) for on
 | Android  | Supported |
 | iOS      | Supported |
 
+## Native Dependencies
+
+This module bundles prebuilt static libraries from [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx):
+
+- **Version:** 1.12.29
+- **Git SHA1:** `75022de`
+- **Source:** https://github.com/k2-fsa/sherpa-onnx
+
+The prebuilt binaries are included in the npm package. If you are installing via `npx expo install`, no extra setup is required. See [CONTRIBUTING.md](CONTRIBUTING.md) for building from source.
+
 ## Installation
 
 ```bash
