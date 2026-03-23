@@ -157,35 +157,66 @@ must build them from the upstream sherpa-onnx source.
 - Android NDK (for Android builds)
 - Xcode Command Line Tools (for iOS builds)
 
-### Android (jniLibs)
+### 1. Clone and checkout sherpa-onnx
 
 ```bash
 git clone https://github.com/k2-fsa/sherpa-onnx.git
 cd sherpa-onnx
 git checkout 75022de
+```
 
-# Build for each ABI
+### 2. Build for Android
+
+```bash
 ./build-android-arm64-v8a.sh
 ./build-android-armv7-eabi.sh
 ./build-android-x86-64.sh
 ```
 
-Copy the resulting `libsherpa-onnx-jni.so` files into the module:
-
-- `android/src/main/jniLibs/arm64-v8a/`
-- `android/src/main/jniLibs/armeabi-v7a/`
-- `android/src/main/jniLibs/x86_64/`
-
-### iOS (xcframeworks)
+Then copy the resulting `.so` files into the module (run from the sherpa-onnx directory):
 
 ```bash
-cd sherpa-onnx
-git checkout 75022de
+mkdir -p /path/to/expo-sherpa-onnx/android/src/main/jniLibs/{arm64-v8a,armeabi-v7a,x86_64}
 
+cp build-android-arm64-v8a-static/install/lib/libsherpa-onnx-jni.so \
+   /path/to/expo-sherpa-onnx/android/src/main/jniLibs/arm64-v8a/
+
+cp build-android-armv7-eabi-static/install/lib/libsherpa-onnx-jni.so \
+   /path/to/expo-sherpa-onnx/android/src/main/jniLibs/armeabi-v7a/
+
+cp build-android-x86-64-static/install/lib/libsherpa-onnx-jni.so \
+   /path/to/expo-sherpa-onnx/android/src/main/jniLibs/x86_64/
+```
+
+### 3. Build for iOS
+
+```bash
 ./build-ios.sh
 ```
 
-Copy the resulting `sherpa-onnx.xcframework` and `onnxruntime.xcframework` into `ios/`.
+Then copy the xcframeworks into the module. The `onnxruntime.xcframework` may be
+behind a symlink (e.g. `build-ios/ios-onnxruntime/onnxruntime.xcframework` ->
+`1.17.1/onnxruntime.xcframework`), so use `cp -RLa` to dereference symlinks:
+
+```bash
+cp -RLa build-ios/sherpa-onnx.xcframework /path/to/expo-sherpa-onnx/ios/
+cp -RLa build-ios/ios-onnxruntime/1.17.1/onnxruntime.xcframework /path/to/expo-sherpa-onnx/ios/
+```
+
+> **Tip:** If the symlink target has changed, resolve it manually:
+> `ls -la build-ios/ios-onnxruntime/onnxruntime.xcframework` to see
+> where it points, then copy the real directory.
+
+### 4. Verify
+
+From the module root, run:
+
+```bash
+node scripts/verify-binaries.js
+```
+
+This checks that all required binary directories exist and are non-empty.
+The same check runs automatically during `npm publish`.
 
 ## License
 

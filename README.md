@@ -39,7 +39,27 @@ This module bundles prebuilt static libraries from [sherpa-onnx](https://github.
 - **Git SHA1:** `75022de`
 - **Source:** https://github.com/k2-fsa/sherpa-onnx
 
-The prebuilt binaries are included in the npm package. If you are installing via `npx expo install`, no extra setup is required. See [CONTRIBUTING.md](CONTRIBUTING.md) for building from source.
+The prebuilt binaries are included in the npm package. If you are installing via `npx expo install`, no extra setup is required.
+
+### Building from source (contributors)
+
+The binaries are not checked into git. If you're contributing to this module and need to build or run the example app natively:
+
+```bash
+git clone https://github.com/k2-fsa/sherpa-onnx.git
+cd sherpa-onnx
+git checkout 75022de
+
+# Android — build for each ABI, then copy .so files into android/src/main/jniLibs/
+./build-android-arm64-v8a.sh
+./build-android-armv7-eabi.sh
+./build-android-x86-64.sh
+
+# iOS — build xcframeworks, then copy into ios/ (use cp -RLa to resolve symlinks)
+./build-ios.sh
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md#building-native-binaries) for full step-by-step instructions with exact copy commands.
 
 ## Installation
 
