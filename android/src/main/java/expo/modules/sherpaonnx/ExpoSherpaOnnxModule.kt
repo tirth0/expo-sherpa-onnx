@@ -21,6 +21,11 @@ class ExpoSherpaOnnxModule : Module() {
   private val keywordSpotters = ConcurrentHashMap<Int, KeywordSpotter>()
   private val kwsStreams = ConcurrentHashMap<Int, OnlineStream>()
   private val kwsStreamToSpotter = ConcurrentHashMap<Int, Int>()
+  private val speakerExtractors = ConcurrentHashMap<Int, SpeakerEmbeddingExtractor>()
+  private val speakerStreams = ConcurrentHashMap<Int, OnlineStream>()
+  private val speakerStreamToExtractor = ConcurrentHashMap<Int, Int>()
+  private val speakerManagers = ConcurrentHashMap<Int, SpeakerEmbeddingManager>()
+  private val diarizationEngines = ConcurrentHashMap<Int, OfflineSpeakerDiarization>()
 
   override fun definition() = ModuleDefinition {
     Name("ExpoSherpaOnnx")
@@ -53,6 +58,21 @@ class ExpoSherpaOnnxModule : Module() {
 
       vadEngines.values.forEach { try { it.release() } catch (_: Exception) {} }
       vadEngines.clear()
+
+      val spkStreams = speakerStreams.toMap()
+      speakerStreams.clear()
+      speakerStreamToExtractor.clear()
+      spkStreams.values.forEach { try { it.release() } catch (_: Exception) {} }
+
+      val extractors = speakerExtractors.toMap()
+      speakerExtractors.clear()
+      extractors.values.forEach { try { it.release() } catch (_: Exception) {} }
+
+      speakerManagers.values.forEach { try { it.release() } catch (_: Exception) {} }
+      speakerManagers.clear()
+
+      diarizationEngines.values.forEach { try { it.release() } catch (_: Exception) {} }
+      diarizationEngines.clear()
     }
 
     // Version info
@@ -493,6 +513,33 @@ class ExpoSherpaOnnxModule : Module() {
       vad.flush()
     }
 
+    AsyncFunction("vadProcessFile") { handle: Int, filePath: String ->
+      val vad = vadEngines[handle]
+        ?: throw IllegalArgumentException("Invalid VAD handle: $handle")
+      Log.i(TAG, "=== vadProcessFile START filePath=$filePath ===")
+      val waveData = WaveReader.readWave(filePath)
+      vad.reset()
+      val windowSize = 512
+      var i = 0
+      while (i + windowSize <= waveData.samples.size) {
+        val chunk = waveData.samples.copyOfRange(i, i + windowSize)
+        vad.acceptWaveform(chunk)
+        i += windowSize
+      }
+      vad.flush()
+      val segments = mutableListOf<Map<String, Any>>()
+      while (!vad.empty()) {
+        val seg = vad.front()
+        segments.add(mapOf(
+          "start" to seg.start,
+          "samples" to seg.samples.map { it.toDouble() },
+        ))
+        vad.pop()
+      }
+      Log.i(TAG, "=== vadProcessFile DONE ${segments.size} segments ===")
+      segments.toList()
+    }
+
     AsyncFunction("destroyVad") { handle: Int ->
       Log.i(TAG, "=== destroyVad handle=$handle ===")
       val vad = vadEngines.remove(handle)
@@ -596,6 +643,288 @@ class ExpoSherpaOnnxModule : Module() {
       if (spotter != null) {
         try { spotter.release() } catch (e: Exception) {
           Log.e(TAG, "  KWS release() threw: ${e.message}", e)
+        }
+      }
+    }
+
+    // =========================================================================
+    // Speaker Embedding Extractor
+    // =========================================================================
+
+    AsyncFunction("createSpeakerEmbeddingExtractor") { config: Map<String, Any?> ->
+      val model = config["model"] as? String ?: ""
+      if (model.isBlank()) throw Exception("Speaker embedding model path is required")
+      requireFile(model, "speaker embedding model")
+
+      val extractorConfig = SpeakerEmbeddingExtractorConfig(
+        model = model,
+        numThreads = (config["numThreads"] as? Number)?.toInt() ?: 1,
+        debug = config["debug"] as? Boolean ?: false,
+        provider = config["provider"] as? String ?: "cpu",
+      )
+      Log.i(TAG, "=== createSpeakerEmbeddingExtractor START ===")
+      val extractor = try {
+        SpeakerEmbeddingExtractor(null, extractorConfig)
+      } catch (e: Exception) {
+        Log.e(TAG, "  SpeakerEmbeddingExtractor constructor threw: ${e.message}", e)
+        throw Exception("Native SpeakerEmbeddingExtractor creation failed: ${e.message}")
+      }
+      val handle = handleCounter.incrementAndGet()
+      speakerExtractors[handle] = extractor
+      Log.i(TAG, "=== createSpeakerEmbeddingExtractor DONE handle=$handle dim=${extractor.dim()} ===")
+      handle
+    }
+
+    AsyncFunction("speakerExtractorCreateStream") { extractorHandle: Int ->
+      val extractor = speakerExtractors[extractorHandle]
+        ?: throw IllegalArgumentException("Invalid speaker extractor handle: $extractorHandle")
+      val stream = extractor.createStream()
+      val streamHandle = handleCounter.incrementAndGet()
+      speakerStreams[streamHandle] = stream
+      speakerStreamToExtractor[streamHandle] = extractorHandle
+      streamHandle
+    }
+
+    AsyncFunction("speakerStreamAcceptWaveform") { streamHandle: Int, samples: List<Double>, sampleRate: Int ->
+      val stream = speakerStreams[streamHandle]
+        ?: throw IllegalArgumentException("Invalid speaker stream handle: $streamHandle")
+      val floatSamples = FloatArray(samples.size) { samples[it].toFloat() }
+      stream.acceptWaveform(floatSamples, sampleRate)
+    }
+
+    AsyncFunction("speakerExtractorIsReady") { extractorHandle: Int, streamHandle: Int ->
+      val extractor = speakerExtractors[extractorHandle]
+        ?: throw IllegalArgumentException("Invalid speaker extractor handle: $extractorHandle")
+      val stream = speakerStreams[streamHandle]
+        ?: throw IllegalArgumentException("Invalid speaker stream handle: $streamHandle")
+      extractor.isReady(stream)
+    }
+
+    AsyncFunction("speakerExtractorCompute") { extractorHandle: Int, streamHandle: Int ->
+      val extractor = speakerExtractors[extractorHandle]
+        ?: throw IllegalArgumentException("Invalid speaker extractor handle: $extractorHandle")
+      val stream = speakerStreams[streamHandle]
+        ?: throw IllegalArgumentException("Invalid speaker stream handle: $streamHandle")
+      val embedding = extractor.compute(stream)
+      embedding.map { it.toDouble() }
+    }
+
+    AsyncFunction("speakerExtractorDim") { extractorHandle: Int ->
+      val extractor = speakerExtractors[extractorHandle]
+        ?: throw IllegalArgumentException("Invalid speaker extractor handle: $extractorHandle")
+      extractor.dim()
+    }
+
+    AsyncFunction("speakerExtractorComputeFromFile") { extractorHandle: Int, filePath: String ->
+      val extractor = speakerExtractors[extractorHandle]
+        ?: throw IllegalArgumentException("Invalid speaker extractor handle: $extractorHandle")
+      Log.i(TAG, "=== speakerExtractorComputeFromFile START filePath=$filePath ===")
+      val waveData = WaveReader.readWave(filePath)
+      val stream = extractor.createStream()
+      stream.acceptWaveform(waveData.samples, waveData.sampleRate)
+      val embedding = extractor.compute(stream)
+      stream.release()
+      Log.i(TAG, "=== speakerExtractorComputeFromFile DONE dim=${embedding.size} ===")
+      embedding.map { it.toDouble() }
+    }
+
+    AsyncFunction("destroySpeakerStream") { streamHandle: Int ->
+      val stream = speakerStreams.remove(streamHandle)
+      speakerStreamToExtractor.remove(streamHandle)
+      if (stream != null) {
+        try { stream.release() } catch (_: Exception) {}
+      }
+    }
+
+    AsyncFunction("destroySpeakerEmbeddingExtractor") { extractorHandle: Int ->
+      Log.i(TAG, "=== destroySpeakerEmbeddingExtractor handle=$extractorHandle ===")
+      val streamsToRemove = speakerStreamToExtractor.filter { it.value == extractorHandle }.keys
+      streamsToRemove.forEach { sh ->
+        speakerStreams.remove(sh)?.let { try { it.release() } catch (_: Exception) {} }
+        speakerStreamToExtractor.remove(sh)
+      }
+      val extractor = speakerExtractors.remove(extractorHandle)
+      if (extractor != null) {
+        try { extractor.release() } catch (e: Exception) {
+          Log.e(TAG, "  SpeakerEmbeddingExtractor release() threw: ${e.message}", e)
+        }
+      }
+    }
+
+    // =========================================================================
+    // Speaker Embedding Manager
+    // =========================================================================
+
+    AsyncFunction("createSpeakerEmbeddingManager") { dim: Int ->
+      Log.i(TAG, "=== createSpeakerEmbeddingManager dim=$dim ===")
+      val manager = SpeakerEmbeddingManager(dim)
+      val handle = handleCounter.incrementAndGet()
+      speakerManagers[handle] = manager
+      handle
+    }
+
+    AsyncFunction("speakerManagerAdd") { handle: Int, name: String, embedding: List<Double> ->
+      val manager = speakerManagers[handle]
+        ?: throw IllegalArgumentException("Invalid speaker manager handle: $handle")
+      val floatEmbedding = FloatArray(embedding.size) { embedding[it].toFloat() }
+      manager.add(name, floatEmbedding)
+    }
+
+    AsyncFunction("speakerManagerAddList") { handle: Int, name: String, embeddings: List<List<Double>> ->
+      val manager = speakerManagers[handle]
+        ?: throw IllegalArgumentException("Invalid speaker manager handle: $handle")
+      val floatEmbeddings = Array(embeddings.size) { i ->
+        FloatArray(embeddings[i].size) { j -> embeddings[i][j].toFloat() }
+      }
+      manager.add(name, floatEmbeddings)
+    }
+
+    AsyncFunction("speakerManagerRemove") { handle: Int, name: String ->
+      val manager = speakerManagers[handle]
+        ?: throw IllegalArgumentException("Invalid speaker manager handle: $handle")
+      manager.remove(name)
+    }
+
+    AsyncFunction("speakerManagerSearch") { handle: Int, embedding: List<Double>, threshold: Double ->
+      val manager = speakerManagers[handle]
+        ?: throw IllegalArgumentException("Invalid speaker manager handle: $handle")
+      val floatEmbedding = FloatArray(embedding.size) { embedding[it].toFloat() }
+      manager.search(floatEmbedding, threshold.toFloat())
+    }
+
+    AsyncFunction("speakerManagerVerify") { handle: Int, name: String, embedding: List<Double>, threshold: Double ->
+      val manager = speakerManagers[handle]
+        ?: throw IllegalArgumentException("Invalid speaker manager handle: $handle")
+      val floatEmbedding = FloatArray(embedding.size) { embedding[it].toFloat() }
+      manager.verify(name, floatEmbedding, threshold.toFloat())
+    }
+
+    AsyncFunction("speakerManagerContains") { handle: Int, name: String ->
+      val manager = speakerManagers[handle]
+        ?: throw IllegalArgumentException("Invalid speaker manager handle: $handle")
+      manager.contains(name)
+    }
+
+    AsyncFunction("speakerManagerNumSpeakers") { handle: Int ->
+      val manager = speakerManagers[handle]
+        ?: throw IllegalArgumentException("Invalid speaker manager handle: $handle")
+      manager.numSpeakers()
+    }
+
+    AsyncFunction("speakerManagerAllSpeakerNames") { handle: Int ->
+      val manager = speakerManagers[handle]
+        ?: throw IllegalArgumentException("Invalid speaker manager handle: $handle")
+      manager.allSpeakerNames().toList()
+    }
+
+    AsyncFunction("destroySpeakerEmbeddingManager") { handle: Int ->
+      Log.i(TAG, "=== destroySpeakerEmbeddingManager handle=$handle ===")
+      val manager = speakerManagers.remove(handle)
+      if (manager != null) {
+        try { manager.release() } catch (e: Exception) {
+          Log.e(TAG, "  SpeakerEmbeddingManager release() threw: ${e.message}", e)
+        }
+      }
+    }
+
+    // =========================================================================
+    // Offline Speaker Diarization
+    // =========================================================================
+
+    AsyncFunction("createOfflineSpeakerDiarization") { config: Map<String, Any?> ->
+      val diarizationConfig = buildOfflineSpeakerDiarizationConfig(config)
+      Log.i(TAG, "=== createOfflineSpeakerDiarization START ===")
+      val diarization = try {
+        OfflineSpeakerDiarization(null, diarizationConfig)
+      } catch (e: Exception) {
+        Log.e(TAG, "  OfflineSpeakerDiarization constructor threw: ${e.message}", e)
+        throw Exception("Native OfflineSpeakerDiarization creation failed: ${e.message}")
+      }
+      val handle = handleCounter.incrementAndGet()
+      diarizationEngines[handle] = diarization
+      Log.i(TAG, "=== createOfflineSpeakerDiarization DONE handle=$handle sampleRate=${diarization.sampleRate()} ===")
+      handle
+    }
+
+    AsyncFunction("offlineSpeakerDiarizationGetSampleRate") { handle: Int ->
+      val diarization = diarizationEngines[handle]
+        ?: throw IllegalArgumentException("Invalid diarization handle: $handle")
+      diarization.sampleRate()
+    }
+
+    AsyncFunction("offlineSpeakerDiarizationProcess") { handle: Int, samples: List<Double> ->
+      val diarization = diarizationEngines[handle]
+        ?: throw IllegalArgumentException("Invalid diarization handle: $handle")
+      val floatSamples = FloatArray(samples.size) { samples[it].toFloat() }
+      val segments = diarization.process(floatSamples)
+      segments.map { seg ->
+        mapOf(
+          "start" to seg.start.toDouble(),
+          "end" to seg.end.toDouble(),
+          "speaker" to seg.speaker,
+        )
+      }
+    }
+
+    AsyncFunction("offlineSpeakerDiarizationProcessFile") { handle: Int, filePath: String ->
+      val diarization = diarizationEngines[handle]
+        ?: throw IllegalArgumentException("Invalid diarization handle: $handle")
+      Log.i(TAG, "=== offlineSpeakerDiarizationProcessFile START filePath=$filePath ===")
+      val waveData = WaveReader.readWave(filePath)
+      val segments = diarization.process(waveData.samples)
+      Log.i(TAG, "=== offlineSpeakerDiarizationProcessFile DONE ${segments.size} segments ===")
+      segments.map { seg ->
+        mapOf(
+          "start" to seg.start.toDouble(),
+          "end" to seg.end.toDouble(),
+          "speaker" to seg.speaker,
+        )
+      }
+    }
+
+    AsyncFunction("transcribeAndDiarizeFile") { diarizationHandle: Int, asrHandle: Int, filePath: String ->
+      val diarization = diarizationEngines[diarizationHandle]
+        ?: throw IllegalArgumentException("Invalid diarization handle: $diarizationHandle")
+      val recognizer = offlineRecognizers[asrHandle]
+        ?: throw IllegalArgumentException("Invalid offline recognizer handle: $asrHandle")
+      Log.i(TAG, "=== transcribeAndDiarizeFile START filePath=$filePath ===")
+      val waveData = WaveReader.readWave(filePath)
+      val segments = diarization.process(waveData.samples)
+      Log.i(TAG, "  Diarization found ${segments.size} segments, transcribing each...")
+      val results = segments.map { seg ->
+        val startSample = (seg.start * waveData.sampleRate).toInt().coerceIn(0, waveData.samples.size)
+        val endSample = (seg.end * waveData.sampleRate).toInt().coerceIn(0, waveData.samples.size)
+        val segSamples = waveData.samples.copyOfRange(startSample, endSample)
+        val stream = recognizer.createStream()
+        stream.acceptWaveform(segSamples, waveData.sampleRate)
+        recognizer.decode(stream)
+        val result = recognizer.getResult(stream)
+        stream.release()
+        mapOf(
+          "speaker" to seg.speaker,
+          "start" to seg.start.toDouble(),
+          "end" to seg.end.toDouble(),
+          "text" to result.text,
+        )
+      }
+      Log.i(TAG, "=== transcribeAndDiarizeFile DONE ${results.size} transcribed segments ===")
+      results
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    AsyncFunction("offlineSpeakerDiarizationSetConfig") { handle: Int, config: Map<String, Any?> ->
+      val diarization = diarizationEngines[handle]
+        ?: throw IllegalArgumentException("Invalid diarization handle: $handle")
+      val newConfig = buildOfflineSpeakerDiarizationConfig(config)
+      diarization.setConfig(newConfig)
+    }
+
+    AsyncFunction("destroyOfflineSpeakerDiarization") { handle: Int ->
+      Log.i(TAG, "=== destroyOfflineSpeakerDiarization handle=$handle ===")
+      val diarization = diarizationEngines.remove(handle)
+      if (diarization != null) {
+        try { diarization.release() } catch (e: Exception) {
+          Log.e(TAG, "  OfflineSpeakerDiarization release() threw: ${e.message}", e)
         }
       }
     }
@@ -1188,5 +1517,37 @@ class ExpoSherpaOnnxModule : Module() {
     }
 
     Log.i(TAG, "KWS config validated OK")
+  }
+
+  @Suppress("UNCHECKED_CAST")
+  private fun buildOfflineSpeakerDiarizationConfig(config: Map<String, Any?>): OfflineSpeakerDiarizationConfig {
+    val segMap = config["segmentation"] as? Map<String, Any?> ?: emptyMap()
+    val embMap = config["embedding"] as? Map<String, Any?> ?: emptyMap()
+    val clusterMap = config["clustering"] as? Map<String, Any?> ?: emptyMap()
+
+    val pyannoteMap = segMap["pyannote"] as? Map<String, Any?> ?: emptyMap()
+
+    return OfflineSpeakerDiarizationConfig(
+      segmentation = OfflineSpeakerSegmentationModelConfig(
+        pyannote = OfflineSpeakerSegmentationPyannoteModelConfig(
+          model = pyannoteMap["model"] as? String ?: "",
+        ),
+        numThreads = (segMap["numThreads"] as? Number)?.toInt() ?: 1,
+        debug = segMap["debug"] as? Boolean ?: false,
+        provider = segMap["provider"] as? String ?: "cpu",
+      ),
+      embedding = SpeakerEmbeddingExtractorConfig(
+        model = embMap["model"] as? String ?: "",
+        numThreads = (embMap["numThreads"] as? Number)?.toInt() ?: 1,
+        debug = embMap["debug"] as? Boolean ?: false,
+        provider = embMap["provider"] as? String ?: "cpu",
+      ),
+      clustering = FastClusteringConfig(
+        numClusters = (clusterMap["numClusters"] as? Number)?.toInt() ?: -1,
+        threshold = (clusterMap["threshold"] as? Number)?.toFloat() ?: 0.5f,
+      ),
+      minDurationOn = (config["minDurationOn"] as? Number)?.toFloat() ?: 0.2f,
+      minDurationOff = (config["minDurationOff"] as? Number)?.toFloat() ?: 0.5f,
+    )
   }
 }

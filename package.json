@@ -1,6 +1,6 @@
 {
   "name": "expo-sherpa-onnx",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "Expo module for using sherpa-onnx in react native expo",
   "main": "build/index.js",
   "types": "build/index.d.ts",
@@ -9,7 +9,7 @@
     "clean": "expo-module clean",
     "lint": "expo-module lint",
     "test": "expo-module test",
-    "prepare": "expo-module prepare",
+    "prepare": "expo-module prepare && husky",
     "prepublishOnly": "expo-module prepublishOnly",
     "expo-module": "expo-module",
     "open:ios": "xed example/ios",
@@ -33,6 +33,7 @@
     "expo": "^55.0.8",
     "expo-module-scripts": "^55.0.2",
     "expo-modules-test-core": "^55.0.2",
+    "husky": "^9.1.7",
     "react-native": "0.82.1",
     "typescript": "^5.9.3"
   },

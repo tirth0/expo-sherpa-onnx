@@ -19,6 +19,10 @@ public class ExpoSherpaOnnxModule: Module {
   private var offlineTtsEngines: [Int: SherpaOnnxOfflineTtsWrapper] = [:]
   private var vadEngines: [Int: SherpaOnnxVoiceActivityDetectorWrapper] = [:]
   private var kwsSpotters: [Int: SherpaOnnxKeywordSpotterWrapper] = [:]
+  private var speakerExtractors: [Int: SherpaOnnxSpeakerEmbeddingExtractorWrapper] = [:]
+  private var speakerStreams: [Int: SherpaOnnxOnlineStreamWrapper] = [:]
+  private var speakerManagers: [Int: OpaquePointer] = [:]
+  private var diarizationEngines: [Int: SherpaOnnxOfflineSpeakerDiarizationWrapper] = [:]
 
   private func nextHandle() -> Int {
     lock.lock()
@@ -36,6 +40,13 @@ public class ExpoSherpaOnnxModule: Module {
       self.offlineTtsEngines.removeAll()
       self.vadEngines.removeAll()
       self.kwsSpotters.removeAll()
+      self.speakerStreams.removeAll()
+      self.speakerExtractors.removeAll()
+      for (_, ptr) in self.speakerManagers {
+        SherpaOnnxDestroySpeakerEmbeddingManager(ptr)
+      }
+      self.speakerManagers.removeAll()
+      self.diarizationEngines.removeAll()
     }
 
     // MARK: - Version Info
@@ -481,6 +492,35 @@ public class ExpoSherpaOnnxModule: Module {
       vad.flush()
     }
 
+    AsyncFunction("vadProcessFile") { (handle: Int, filePath: String) -> [[String: Any]] in
+      guard let vad = self.vadEngines[handle] else {
+        throw SherpaError.invalidHandle("VAD", handle)
+      }
+      let wave = SherpaOnnxWaveWrapper.readWave(filename: filePath)
+      guard wave.wave != nil else {
+        throw NSError(domain: "ExpoSherpaOnnx", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to read wave file: \(filePath)"])
+      }
+      vad.reset()
+      let windowSize = 512
+      var i = 0
+      while i + windowSize <= wave.samples.count {
+        let chunk = Array(wave.samples[i..<(i + windowSize)])
+        vad.acceptWaveform(samples: chunk)
+        i += windowSize
+      }
+      vad.flush()
+      var segments: [[String: Any]] = []
+      while !vad.isEmpty() {
+        let seg = vad.front()
+        segments.append([
+          "start": seg.start,
+          "samples": seg.samples.map { Double($0) },
+        ])
+        vad.pop()
+      }
+      return segments
+    }
+
     AsyncFunction("destroyVad") { (handle: Int) in
       self.lock.lock()
       self.vadEngines.removeValue(forKey: handle)
@@ -555,6 +595,298 @@ public class ExpoSherpaOnnxModule: Module {
     AsyncFunction("destroyKeywordSpotter") { (spotterHandle: Int) in
       self.lock.lock()
       self.kwsSpotters.removeValue(forKey: spotterHandle)
+      self.lock.unlock()
+    }
+
+    // =========================================================================
+    // Speaker Embedding Extractor
+    // =========================================================================
+
+    AsyncFunction("createSpeakerEmbeddingExtractor") { (config: [String: Any]) -> Int in
+      var extractorConfig = sherpaOnnxSpeakerEmbeddingExtractorConfig(
+        model: config["model"] as? String ?? "",
+        numThreads: config["numThreads"] as? Int ?? 1,
+        debug: (config["debug"] as? Bool ?? false) ? 1 : 0,
+        provider: config["provider"] as? String ?? "cpu"
+      )
+      let extractor = SherpaOnnxSpeakerEmbeddingExtractorWrapper(config: &extractorConfig)
+      let handle = self.nextHandle()
+      self.lock.lock()
+      self.speakerExtractors[handle] = extractor
+      self.lock.unlock()
+      return handle
+    }
+
+    AsyncFunction("speakerExtractorCreateStream") { (extractorHandle: Int) -> Int in
+      guard let extractor = self.speakerExtractors[extractorHandle] else {
+        throw SherpaError.invalidHandle("speaker extractor", extractorHandle)
+      }
+      let stream = extractor.createStream()
+      let handle = self.nextHandle()
+      self.lock.lock()
+      self.speakerStreams[handle] = stream
+      self.lock.unlock()
+      return handle
+    }
+
+    AsyncFunction("speakerStreamAcceptWaveform") { (streamHandle: Int, samples: [Double], sampleRate: Int) in
+      guard let stream = self.speakerStreams[streamHandle] else {
+        throw SherpaError.invalidHandle("speaker stream", streamHandle)
+      }
+      let floatSamples = samples.map { Float($0) }
+      stream.acceptWaveform(samples: floatSamples, sampleRate: sampleRate)
+    }
+
+    AsyncFunction("speakerExtractorIsReady") { (extractorHandle: Int, streamHandle: Int) -> Bool in
+      guard let extractor = self.speakerExtractors[extractorHandle] else {
+        throw SherpaError.invalidHandle("speaker extractor", extractorHandle)
+      }
+      guard let stream = self.speakerStreams[streamHandle] else {
+        throw SherpaError.invalidHandle("speaker stream", streamHandle)
+      }
+      return extractor.isReady(stream: stream)
+    }
+
+    AsyncFunction("speakerExtractorCompute") { (extractorHandle: Int, streamHandle: Int) -> [Double] in
+      guard let extractor = self.speakerExtractors[extractorHandle] else {
+        throw SherpaError.invalidHandle("speaker extractor", extractorHandle)
+      }
+      guard let stream = self.speakerStreams[streamHandle] else {
+        throw SherpaError.invalidHandle("speaker stream", streamHandle)
+      }
+      let embedding = extractor.compute(stream: stream)
+      return embedding.map { Double($0) }
+    }
+
+    AsyncFunction("speakerExtractorDim") { (extractorHandle: Int) -> Int in
+      guard let extractor = self.speakerExtractors[extractorHandle] else {
+        throw SherpaError.invalidHandle("speaker extractor", extractorHandle)
+      }
+      return extractor.dim
+    }
+
+    AsyncFunction("speakerExtractorComputeFromFile") { (extractorHandle: Int, filePath: String) -> [Double] in
+      guard let extractor = self.speakerExtractors[extractorHandle] else {
+        throw SherpaError.invalidHandle("speaker extractor", extractorHandle)
+      }
+      let wave = SherpaOnnxWaveWrapper.readWave(filename: filePath)
+      guard wave.wave != nil else {
+        throw NSError(domain: "ExpoSherpaOnnx", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to read wave file: \(filePath)"])
+      }
+      let stream = extractor.createStream()
+      stream.acceptWaveform(samples: wave.samples, sampleRate: wave.sampleRate)
+      let embedding = extractor.compute(stream: stream)
+      return embedding.map { Double($0) }
+    }
+
+    AsyncFunction("destroySpeakerStream") { (streamHandle: Int) in
+      self.lock.lock()
+      self.speakerStreams.removeValue(forKey: streamHandle)
+      self.lock.unlock()
+    }
+
+    AsyncFunction("destroySpeakerEmbeddingExtractor") { (extractorHandle: Int) in
+      self.lock.lock()
+      self.speakerExtractors.removeValue(forKey: extractorHandle)
+      self.lock.unlock()
+    }
+
+    // =========================================================================
+    // Speaker Embedding Manager (C API)
+    // =========================================================================
+
+    AsyncFunction("createSpeakerEmbeddingManager") { (dim: Int) -> Int in
+      guard let ptr = SherpaOnnxCreateSpeakerEmbeddingManager(Int32(dim)) else {
+        throw NSError(domain: "ExpoSherpaOnnx", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create speaker embedding manager"])
+      }
+      let handle = self.nextHandle()
+      self.lock.lock()
+      self.speakerManagers[handle] = ptr
+      self.lock.unlock()
+      return handle
+    }
+
+    AsyncFunction("speakerManagerAdd") { (handle: Int, name: String, embedding: [Double]) -> Bool in
+      guard let ptr = self.speakerManagers[handle] else {
+        throw SherpaError.invalidHandle("speaker manager", handle)
+      }
+      var floats = embedding.map { Float($0) }
+      let result = SherpaOnnxSpeakerEmbeddingManagerAdd(ptr, name, &floats)
+      return result == 1
+    }
+
+    AsyncFunction("speakerManagerAddList") { (handle: Int, name: String, embeddings: [[Double]]) -> Bool in
+      guard let ptr = self.speakerManagers[handle] else {
+        throw SherpaError.invalidHandle("speaker manager", handle)
+      }
+      let n = Int32(embeddings.count)
+      var flatFloats = embeddings.flatMap { $0.map { Float($0) } }
+      let result = SherpaOnnxSpeakerEmbeddingManagerAddListFlattened(ptr, name, &flatFloats, n)
+      return result == 1
+    }
+
+    AsyncFunction("speakerManagerRemove") { (handle: Int, name: String) -> Bool in
+      guard let ptr = self.speakerManagers[handle] else {
+        throw SherpaError.invalidHandle("speaker manager", handle)
+      }
+      let result = SherpaOnnxSpeakerEmbeddingManagerRemove(ptr, name)
+      return result == 1
+    }
+
+    AsyncFunction("speakerManagerSearch") { (handle: Int, embedding: [Double], threshold: Double) -> String in
+      guard let ptr = self.speakerManagers[handle] else {
+        throw SherpaError.invalidHandle("speaker manager", handle)
+      }
+      var floats = embedding.map { Float($0) }
+      let result = SherpaOnnxSpeakerEmbeddingManagerSearch(ptr, &floats, Float(threshold))
+      if let result = result {
+        let name = String(cString: result)
+        return name
+      }
+      return ""
+    }
+
+    AsyncFunction("speakerManagerVerify") { (handle: Int, name: String, embedding: [Double], threshold: Double) -> Bool in
+      guard let ptr = self.speakerManagers[handle] else {
+        throw SherpaError.invalidHandle("speaker manager", handle)
+      }
+      var floats = embedding.map { Float($0) }
+      let result = SherpaOnnxSpeakerEmbeddingManagerVerify(ptr, name, &floats, Float(threshold))
+      return result == 1
+    }
+
+    AsyncFunction("speakerManagerContains") { (handle: Int, name: String) -> Bool in
+      guard let ptr = self.speakerManagers[handle] else {
+        throw SherpaError.invalidHandle("speaker manager", handle)
+      }
+      let result = SherpaOnnxSpeakerEmbeddingManagerContains(ptr, name)
+      return result == 1
+    }
+
+    AsyncFunction("speakerManagerNumSpeakers") { (handle: Int) -> Int in
+      guard let ptr = self.speakerManagers[handle] else {
+        throw SherpaError.invalidHandle("speaker manager", handle)
+      }
+      return Int(SherpaOnnxSpeakerEmbeddingManagerNumSpeakers(ptr))
+    }
+
+    AsyncFunction("speakerManagerAllSpeakerNames") { (handle: Int) -> [String] in
+      guard let ptr = self.speakerManagers[handle] else {
+        throw SherpaError.invalidHandle("speaker manager", handle)
+      }
+      let namesPtr = SherpaOnnxSpeakerEmbeddingManagerGetAllSpeakers(ptr)
+      guard let namesPtr = namesPtr else { return [] }
+
+      var names: [String] = []
+      var i = 0
+      while namesPtr[i] != nil {
+        names.append(String(cString: namesPtr[i]!))
+        i += 1
+      }
+
+      SherpaOnnxSpeakerEmbeddingManagerFreeAllSpeakers(namesPtr)
+      return names
+    }
+
+    AsyncFunction("destroySpeakerEmbeddingManager") { (handle: Int) in
+      self.lock.lock()
+      if let ptr = self.speakerManagers.removeValue(forKey: handle) {
+        SherpaOnnxDestroySpeakerEmbeddingManager(ptr)
+      }
+      self.lock.unlock()
+    }
+
+    // =========================================================================
+    // Offline Speaker Diarization
+    // =========================================================================
+
+    AsyncFunction("createOfflineSpeakerDiarization") { (config: [String: Any]) -> Int in
+      var diarizationConfig = Self.buildOfflineSpeakerDiarizationConfig(config)
+      let diarization = SherpaOnnxOfflineSpeakerDiarizationWrapper(config: &diarizationConfig)
+      let handle = self.nextHandle()
+      self.lock.lock()
+      self.diarizationEngines[handle] = diarization
+      self.lock.unlock()
+      return handle
+    }
+
+    AsyncFunction("offlineSpeakerDiarizationGetSampleRate") { (handle: Int) -> Int in
+      guard let diarization = self.diarizationEngines[handle] else {
+        throw SherpaError.invalidHandle("diarization", handle)
+      }
+      return diarization.sampleRate
+    }
+
+    AsyncFunction("offlineSpeakerDiarizationProcess") { (handle: Int, samples: [Double]) -> [[String: Any]] in
+      guard let diarization = self.diarizationEngines[handle] else {
+        throw SherpaError.invalidHandle("diarization", handle)
+      }
+      let floatSamples = samples.map { Float($0) }
+      let segments = diarization.process(samples: floatSamples)
+      return segments.map { seg in
+        [
+          "start": Double(seg.start),
+          "end": Double(seg.end),
+          "speaker": seg.speaker,
+        ]
+      }
+    }
+
+    AsyncFunction("offlineSpeakerDiarizationProcessFile") { (handle: Int, filePath: String) -> [[String: Any]] in
+      guard let diarization = self.diarizationEngines[handle] else {
+        throw SherpaError.invalidHandle("diarization", handle)
+      }
+      let wave = SherpaOnnxWaveWrapper.readWave(filename: filePath)
+      guard wave.wave != nil else {
+        throw NSError(domain: "ExpoSherpaOnnx", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to read wave file: \(filePath)"])
+      }
+      let segments = diarization.process(samples: wave.samples)
+      return segments.map { seg in
+        [
+          "start": Double(seg.start),
+          "end": Double(seg.end),
+          "speaker": seg.speaker,
+        ]
+      }
+    }
+
+    AsyncFunction("transcribeAndDiarizeFile") { (diarizationHandle: Int, asrHandle: Int, filePath: String) -> [[String: Any]] in
+      guard let diarization = self.diarizationEngines[diarizationHandle] else {
+        throw SherpaError.invalidHandle("diarization", diarizationHandle)
+      }
+      guard let recognizer = self.offlineRecognizers[asrHandle] else {
+        throw SherpaError.invalidHandle("offline recognizer", asrHandle)
+      }
+      let wave = SherpaOnnxWaveWrapper.readWave(filename: filePath)
+      guard wave.wave != nil else {
+        throw NSError(domain: "ExpoSherpaOnnx", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to read wave file: \(filePath)"])
+      }
+      let segments = diarization.process(samples: wave.samples)
+      return segments.map { seg in
+        let startSample = max(0, min(wave.samples.count, Int(seg.start * Float(wave.sampleRate))))
+        let endSample = max(0, min(wave.samples.count, Int(seg.end * Float(wave.sampleRate))))
+        let segSamples = Array(wave.samples[startSample..<endSample])
+        let result = recognizer.decode(samples: segSamples, sampleRate: wave.sampleRate)
+        return [
+          "speaker": seg.speaker,
+          "start": Double(seg.start),
+          "end": Double(seg.end),
+          "text": result.text,
+        ] as [String: Any]
+      }
+    }
+
+    AsyncFunction("offlineSpeakerDiarizationSetConfig") { (handle: Int, config: [String: Any]) in
+      guard let diarization = self.diarizationEngines[handle] else {
+        throw SherpaError.invalidHandle("diarization", handle)
+      }
+      var diarizationConfig = Self.buildOfflineSpeakerDiarizationConfig(config)
+      diarization.setConfig(config: &diarizationConfig)
+    }
+
+    AsyncFunction("destroyOfflineSpeakerDiarization") { (handle: Int) in
+      self.lock.lock()
+      self.diarizationEngines.removeValue(forKey: handle)
       self.lock.unlock()
     }
   }
@@ -995,6 +1327,44 @@ public class ExpoSherpaOnnxModule: Module {
       numTrailingBlanks: config["numTrailingBlanks"] as? Int ?? 2,
       keywordsScore: Float(config["keywordsScore"] as? Double ?? 1.5),
       keywordsThreshold: Float(config["keywordsThreshold"] as? Double ?? 0.25)
+    )
+  }
+
+  private static func buildOfflineSpeakerDiarizationConfig(_ config: [String: Any]) -> SherpaOnnxOfflineSpeakerDiarizationConfig {
+    let segMap = config["segmentation"] as? [String: Any] ?? [:]
+    let embMap = config["embedding"] as? [String: Any] ?? [:]
+    let clusterMap = config["clustering"] as? [String: Any] ?? [:]
+    let pyannoteMap = segMap["pyannote"] as? [String: Any] ?? [:]
+
+    let pyannote = sherpaOnnxOfflineSpeakerSegmentationPyannoteModelConfig(
+      model: pyannoteMap["model"] as? String ?? ""
+    )
+
+    let segmentation = sherpaOnnxOfflineSpeakerSegmentationModelConfig(
+      pyannote: pyannote,
+      numThreads: segMap["numThreads"] as? Int ?? 1,
+      debug: (segMap["debug"] as? Bool ?? false) ? 1 : 0,
+      provider: segMap["provider"] as? String ?? "cpu"
+    )
+
+    let embedding = sherpaOnnxSpeakerEmbeddingExtractorConfig(
+      model: embMap["model"] as? String ?? "",
+      numThreads: embMap["numThreads"] as? Int ?? 1,
+      debug: (embMap["debug"] as? Bool ?? false) ? 1 : 0,
+      provider: embMap["provider"] as? String ?? "cpu"
+    )
+
+    let clustering = sherpaOnnxFastClusteringConfig(
+      numClusters: clusterMap["numClusters"] as? Int ?? -1,
+      threshold: Float(clusterMap["threshold"] as? Double ?? 0.5)
+    )
+
+    return sherpaOnnxOfflineSpeakerDiarizationConfig(
+      segmentation: segmentation,
+      embedding: embedding,
+      clustering: clustering,
+      minDurationOn: Float(config["minDurationOn"] as? Double ?? 0.3),
+      minDurationOff: Float(config["minDurationOff"] as? Double ?? 0.5)
     )
   }
 }

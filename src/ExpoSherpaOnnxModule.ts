@@ -119,6 +119,7 @@ export interface ExpoSherpaOnnxNativeModule {
   vadClear(handle: number): Promise<void>;
   vadReset(handle: number): Promise<void>;
   vadFlush(handle: number): Promise<void>;
+  vadProcessFile(handle: number, filePath: string): Promise<SpeechSegment[]>;
   destroyVad(handle: number): Promise<void>;
 
   // Keyword Spotting
@@ -150,6 +151,81 @@ export interface ExpoSherpaOnnxNativeModule {
   ): Promise<void>;
   destroyKeywordStream(streamHandle: number): Promise<void>;
   destroyKeywordSpotter(spotterHandle: number): Promise<void>;
+
+  // Speaker Embedding Extractor
+  createSpeakerEmbeddingExtractor(config: Record<string, unknown>): Promise<number>;
+  speakerExtractorCreateStream(extractorHandle: number): Promise<number>;
+  speakerStreamAcceptWaveform(
+    streamHandle: number,
+    samples: number[],
+    sampleRate: number
+  ): Promise<void>;
+  speakerExtractorIsReady(
+    extractorHandle: number,
+    streamHandle: number
+  ): Promise<boolean>;
+  speakerExtractorCompute(
+    extractorHandle: number,
+    streamHandle: number
+  ): Promise<number[]>;
+  speakerExtractorDim(extractorHandle: number): Promise<number>;
+  speakerExtractorComputeFromFile(
+    extractorHandle: number,
+    filePath: string
+  ): Promise<number[]>;
+  destroySpeakerStream(streamHandle: number): Promise<void>;
+  destroySpeakerEmbeddingExtractor(extractorHandle: number): Promise<void>;
+
+  // Speaker Embedding Manager
+  createSpeakerEmbeddingManager(dim: number): Promise<number>;
+  speakerManagerAdd(
+    handle: number,
+    name: string,
+    embedding: number[]
+  ): Promise<boolean>;
+  speakerManagerAddList(
+    handle: number,
+    name: string,
+    embeddings: number[][]
+  ): Promise<boolean>;
+  speakerManagerRemove(handle: number, name: string): Promise<boolean>;
+  speakerManagerSearch(
+    handle: number,
+    embedding: number[],
+    threshold: number
+  ): Promise<string>;
+  speakerManagerVerify(
+    handle: number,
+    name: string,
+    embedding: number[],
+    threshold: number
+  ): Promise<boolean>;
+  speakerManagerContains(handle: number, name: string): Promise<boolean>;
+  speakerManagerNumSpeakers(handle: number): Promise<number>;
+  speakerManagerAllSpeakerNames(handle: number): Promise<string[]>;
+  destroySpeakerEmbeddingManager(handle: number): Promise<void>;
+
+  // Offline Speaker Diarization
+  createOfflineSpeakerDiarization(config: Record<string, unknown>): Promise<number>;
+  offlineSpeakerDiarizationGetSampleRate(handle: number): Promise<number>;
+  offlineSpeakerDiarizationProcess(
+    handle: number,
+    samples: number[]
+  ): Promise<Array<{ start: number; end: number; speaker: number }>>;
+  offlineSpeakerDiarizationProcessFile(
+    handle: number,
+    filePath: string
+  ): Promise<Array<{ start: number; end: number; speaker: number }>>;
+  transcribeAndDiarizeFile(
+    diarizationHandle: number,
+    asrHandle: number,
+    filePath: string
+  ): Promise<Array<{ speaker: number; start: number; end: number; text: string }>>;
+  offlineSpeakerDiarizationSetConfig(
+    handle: number,
+    config: Record<string, unknown>
+  ): Promise<void>;
+  destroyOfflineSpeakerDiarization(handle: number): Promise<void>;
 
   addListener(eventName: string): void;
   removeListeners(count: number): void;

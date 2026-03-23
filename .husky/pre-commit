@@ -1,0 +1,7 @@
+npm run lint || exit 1
+
+npm test -- --coverage --coverageReporters json-summary --json --outputFile=coverage/test-results.json > /dev/null || exit 1
+
+node scripts/update-badges.js || exit 1
+
+git add README.md

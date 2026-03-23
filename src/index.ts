@@ -6,3 +6,5 @@ export * from './stt';
 export * from './tts';
 export * from './vad';
 export * from './kws';
+export * from './speaker';
+export * from './diarization';

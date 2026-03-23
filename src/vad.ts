@@ -11,6 +11,7 @@ export interface VADEngine {
   clear(): Promise<void>;
   reset(): Promise<void>;
   flush(): Promise<void>;
+  processFile(filePath: string): Promise<SpeechSegment[]>;
   destroy(): Promise<void>;
 }
 
@@ -67,6 +68,11 @@ export async function createVAD(
     async flush(): Promise<void> {
       if (destroyed) throw new Error('VADEngine has been destroyed');
       return ExpoSherpaOnnxModule.vadFlush(handle);
+    },
+
+    async processFile(filePath: string): Promise<SpeechSegment[]> {
+      if (destroyed) throw new Error('VADEngine has been destroyed');
+      return ExpoSherpaOnnxModule.vadProcessFile(handle, filePath);
     },
 
     async destroy(): Promise<void> {
