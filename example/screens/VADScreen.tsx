@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Text, View, TextInput, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { ExpoPlayAudioStream } from '@mykin-ai/expo-audio-stream';
-import ExpoSherpaOnnx, { createVAD, readWaveFile, listModelsAtPath } from 'expo-sherpa-onnx';
+import ExpoSherpaOnnx, { createVAD, listModelsAtPath } from 'expo-sherpa-onnx';
 import type { VADEngine, VadModelConfig } from 'expo-sherpa-onnx';
 import { styles } from '../styles';
 import { base64ToFloat32 } from '../utils/audio';
@@ -73,24 +73,14 @@ export function VADScreen() {
     try {
       const config = buildVadConfig(vadModelPath);
       const vad = await createVAD(config, 60.0);
-      const wave = await readWaveFile(wavPath);
-      const windowSize = config.sileroVadModelConfig?.windowSize ?? 512;
       const t0 = Date.now();
 
-      for (let i = 0; i < wave.samples.length; i += windowSize) {
-        const chunk = wave.samples.slice(i, i + windowSize);
-        if (chunk.length === windowSize) {
-          await vad.acceptWaveform(chunk);
-        }
-      }
-      await vad.flush();
+      const speechSegments = await vad.processFile(wavPath);
 
-      const detectedSegments: Segment[] = [];
-      while (!(await vad.empty())) {
-        const seg = await vad.front();
-        detectedSegments.push({ start: seg.start, durationSamples: seg.samples.length });
-        await vad.pop();
-      }
+      const detectedSegments: Segment[] = speechSegments.map((seg) => ({
+        start: seg.start,
+        durationSamples: seg.samples.length,
+      }));
 
       setElapsed(Date.now() - t0);
       setSegments(detectedSegments);
