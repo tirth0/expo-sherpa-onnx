@@ -1,6 +1,6 @@
 {
   "name": "expo-sherpa-onnx",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Expo module for using sherpa-onnx in react native expo",
   "main": "build/index.js",
   "types": "build/index.d.ts",
