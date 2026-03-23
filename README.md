@@ -3,7 +3,7 @@
 > **Warning**
 > This is an **unstable, work-in-progress** version. APIs may change without notice. Not recommended for production use yet.
 
-![version](https://img.shields.io/badge/version-0.0.2-blue)
+![version](https://img.shields.io/badge/version-0.0.3-blue)
 ![platforms](https://img.shields.io/badge/platforms-android%20%7C%20ios-lightgrey)
 ![tests](https://img.shields.io/badge/tests-316%20passed-brightgreen)
 ![statements](https://img.shields.io/badge/coverage%3A%20statements-87.5%25-yellow)
