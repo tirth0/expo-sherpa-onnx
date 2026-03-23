@@ -14,7 +14,7 @@
     "expo-module": "expo-module",
     "open:ios": "xed example/ios",
     "open:android": "open -a \"Android Studio\" example/android",
-    "release": "cross-env SKIP_BRANCH_PROTECTION=true np"
+    "release": "cross-env SKIP_BRANCH_PROTECTION=true np --no-publish && npm publish"
   },
   "keywords": [
     "react-native",
