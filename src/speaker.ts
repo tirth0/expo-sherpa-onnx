@@ -1,5 +1,5 @@
-import ExpoSherpaOnnxModule from "./ExpoSherpaOnnxModule";
 import type { SpeakerEmbeddingExtractorConfig } from "./ExpoSherpaOnnx.types";
+import ExpoSherpaOnnxModule from "./ExpoSherpaOnnxModule";
 
 export interface SpeakerEmbeddingStream {
   readonly streamHandle: number;

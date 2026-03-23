@@ -1,10 +1,10 @@
-import { listModelsAtPath } from "./utils";
 import type {
   DetectedSttModel,
   DetectedTtsModel,
   SttModelType,
   TtsModelType,
 } from "./ExpoSherpaOnnx.types";
+import { listModelsAtPath } from "./utils";
 
 function matchFiles(files: string[], pattern: RegExp): string[] {
   return files.filter((f) => pattern.test(f));

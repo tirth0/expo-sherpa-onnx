@@ -1,7 +1,7 @@
 /// <reference types="jest" />
-import { createVAD } from "../vad";
-import { createSpeakerEmbeddingExtractor } from "../speaker";
 import { createOfflineSpeakerDiarization } from "../diarization";
+import { createSpeakerEmbeddingExtractor } from "../speaker";
+import { createVAD } from "../vad";
 
 const MOCK_WAV = "/mock/audio.wav";
 

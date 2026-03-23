@@ -1,5 +1,5 @@
-import ExpoSherpaOnnxModule from "./ExpoSherpaOnnxModule";
 import type { ModelPathConfig } from "./ExpoSherpaOnnx.types";
+import ExpoSherpaOnnxModule from "./ExpoSherpaOnnxModule";
 
 export function assetModelPath(path: string): ModelPathConfig {
   return { type: "asset", path };

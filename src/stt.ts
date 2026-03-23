@@ -1,4 +1,3 @@
-import ExpoSherpaOnnxModule from "./ExpoSherpaOnnxModule";
 import type {
   OfflineRecognizerConfig,
   OfflineRecognizerResult,
@@ -6,6 +5,7 @@ import type {
   OnlineRecognizerResult,
   WaveData,
 } from "./ExpoSherpaOnnx.types";
+import ExpoSherpaOnnxModule from "./ExpoSherpaOnnxModule";
 
 // =============================================================================
 // Offline STT Engine

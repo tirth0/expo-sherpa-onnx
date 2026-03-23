@@ -1,8 +1,8 @@
-import ExpoSherpaOnnxModule from "./ExpoSherpaOnnxModule";
 import type {
   KeywordSpotterConfig,
   KeywordSpotterResult,
 } from "./ExpoSherpaOnnx.types";
+import ExpoSherpaOnnxModule from "./ExpoSherpaOnnxModule";
 
 export interface KeywordStream {
   readonly streamHandle: number;

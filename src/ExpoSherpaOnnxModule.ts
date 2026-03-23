@@ -210,18 +210,16 @@ export interface ExpoSherpaOnnxNativeModule {
   offlineSpeakerDiarizationProcess(
     handle: number,
     samples: number[]
-  ): Promise<Array<{ start: number; end: number; speaker: number }>>;
+  ): Promise<{ start: number; end: number; speaker: number }[]>;
   offlineSpeakerDiarizationProcessFile(
     handle: number,
     filePath: string
-  ): Promise<Array<{ start: number; end: number; speaker: number }>>;
+  ): Promise<{ start: number; end: number; speaker: number }[]>;
   transcribeAndDiarizeFile(
     diarizationHandle: number,
     asrHandle: number,
     filePath: string
-  ): Promise<
-    Array<{ speaker: number; start: number; end: number; text: string }>
-  >;
+  ): Promise<{ speaker: number; start: number; end: number; text: string }[]>;
   offlineSpeakerDiarizationSetConfig(
     handle: number,
     config: Record<string, unknown>

@@ -1,5 +1,5 @@
-import ExpoSherpaOnnxModule from "./ExpoSherpaOnnxModule";
 import type { VadModelConfig, SpeechSegment } from "./ExpoSherpaOnnx.types";
+import ExpoSherpaOnnxModule from "./ExpoSherpaOnnxModule";
 
 export interface VADEngine {
   readonly handle: number;

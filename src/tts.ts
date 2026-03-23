@@ -1,9 +1,17 @@
-import { EventEmitter, type Subscription } from "expo-modules-core";
+import type { EventEmitter, EventSubscription } from "expo-modules-core";
 
-import ExpoSherpaOnnxModule from "./ExpoSherpaOnnxModule";
 import type { OfflineTtsConfig, GeneratedAudio } from "./ExpoSherpaOnnx.types";
+import ExpoSherpaOnnxModule from "./ExpoSherpaOnnxModule";
 
-const emitter = new EventEmitter(ExpoSherpaOnnxModule);
+type TtsEventsMap = {
+  ttsChunk: (event: TtsChunkEvent) => void;
+  ttsComplete: (event: TtsCompleteEvent) => void;
+  ttsError: (event: TtsErrorEvent) => void;
+};
+
+const emitter = ExpoSherpaOnnxModule as unknown as InstanceType<
+  EventEmitter<TtsEventsMap>
+>;
 
 // =============================================================================
 // Offline TTS Engine (batch)
@@ -90,7 +98,7 @@ export async function createTTS(
       if (destroyed) throw new Error("OfflineTTSEngine has been destroyed");
       const requestId = `tts_${++requestCounter}_${Date.now()}`;
 
-      const subscriptions: Subscription[] = [];
+      const subscriptions: EventSubscription[] = [];
 
       return new Promise<void>((resolve, reject) => {
         subscriptions.push(
