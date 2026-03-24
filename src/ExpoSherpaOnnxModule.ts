@@ -226,6 +226,80 @@ export interface ExpoSherpaOnnxNativeModule {
   ): Promise<void>;
   destroyOfflineSpeakerDiarization(handle: number): Promise<void>;
 
+  // Spoken Language Identification
+  createSpokenLanguageIdentification(
+    config: Record<string, unknown>
+  ): Promise<number>;
+  spokenLanguageIdentificationCompute(
+    handle: number,
+    samples: number[],
+    sampleRate: number
+  ): Promise<string>;
+  spokenLanguageIdentificationComputeFromFile(
+    handle: number,
+    filePath: string
+  ): Promise<string>;
+  destroySpokenLanguageIdentification(handle: number): Promise<void>;
+
+  // Audio Tagging
+  createAudioTagging(config: Record<string, unknown>): Promise<number>;
+  audioTaggingCompute(
+    handle: number,
+    samples: number[],
+    sampleRate: number,
+    topK: number
+  ): Promise<{ name: string; index: number; prob: number }[]>;
+  audioTaggingComputeFromFile(
+    handle: number,
+    filePath: string,
+    topK: number
+  ): Promise<{ name: string; index: number; prob: number }[]>;
+  destroyAudioTagging(handle: number): Promise<void>;
+
+  // Punctuation (Offline + Online)
+  createOfflinePunctuation(config: Record<string, unknown>): Promise<number>;
+  offlinePunctuationAddPunct(handle: number, text: string): Promise<string>;
+  destroyOfflinePunctuation(handle: number): Promise<void>;
+  createOnlinePunctuation(config: Record<string, unknown>): Promise<number>;
+  onlinePunctuationAddPunct(handle: number, text: string): Promise<string>;
+  destroyOnlinePunctuation(handle: number): Promise<void>;
+
+  // Speech Denoising (Offline + Online)
+  createOfflineSpeechDenoiser(config: Record<string, unknown>): Promise<number>;
+  offlineSpeechDenoiserRun(
+    handle: number,
+    samples: number[],
+    sampleRate: number
+  ): Promise<{ samples: number[]; sampleRate: number }>;
+  offlineSpeechDenoiserRunFromFile(
+    handle: number,
+    filePath: string
+  ): Promise<{ samples: number[]; sampleRate: number }>;
+  offlineSpeechDenoiserSaveToFile(
+    handle: number,
+    inputPath: string,
+    outputPath: string
+  ): Promise<{ outputPath: string; sampleRate: number }>;
+  destroyOfflineSpeechDenoiser(handle: number): Promise<void>;
+  createOnlineSpeechDenoiser(config: Record<string, unknown>): Promise<number>;
+  onlineSpeechDenoiserRun(
+    handle: number,
+    samples: number[],
+    sampleRate: number
+  ): Promise<{ samples: number[]; sampleRate: number }>;
+  onlineSpeechDenoiserFlush(
+    handle: number
+  ): Promise<{ samples: number[]; sampleRate: number }>;
+  destroyOnlineSpeechDenoiser(handle: number): Promise<void>;
+
+  // File Utilities
+  saveAudioToFile(
+    samples: number[],
+    sampleRate: number,
+    filePath: string
+  ): Promise<boolean>;
+  shareAudioFile(filePath: string, mimeType: string): Promise<void>;
+
   addListener(eventName: string): void;
   removeListeners(count: number): void;
 }

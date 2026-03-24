@@ -1,0 +1,145 @@
+export const WHISPER_LANGUAGES: Record<string, string> = {
+  en: "English",
+  zh: "Chinese",
+  de: "German",
+  es: "Spanish",
+  ru: "Russian",
+  ko: "Korean",
+  fr: "French",
+  ja: "Japanese",
+  pt: "Portuguese",
+  tr: "Turkish",
+  pl: "Polish",
+  ca: "Catalan",
+  nl: "Dutch",
+  ar: "Arabic",
+  sv: "Swedish",
+  it: "Italian",
+  id: "Indonesian",
+  hi: "Hindi",
+  fi: "Finnish",
+  vi: "Vietnamese",
+  he: "Hebrew",
+  uk: "Ukrainian",
+  el: "Greek",
+  ms: "Malay",
+  cs: "Czech",
+  ro: "Romanian",
+  da: "Danish",
+  hu: "Hungarian",
+  ta: "Tamil",
+  no: "Norwegian",
+  th: "Thai",
+  ur: "Urdu",
+  hr: "Croatian",
+  bg: "Bulgarian",
+  lt: "Lithuanian",
+  la: "Latin",
+  mi: "Maori",
+  ml: "Malayalam",
+  cy: "Welsh",
+  sk: "Slovak",
+  te: "Telugu",
+  fa: "Persian",
+  lv: "Latvian",
+  bn: "Bengali",
+  sr: "Serbian",
+  az: "Azerbaijani",
+  sl: "Slovenian",
+  kn: "Kannada",
+  et: "Estonian",
+  mk: "Macedonian",
+  br: "Breton",
+  eu: "Basque",
+  is: "Icelandic",
+  hy: "Armenian",
+  ne: "Nepali",
+  mn: "Mongolian",
+  bs: "Bosnian",
+  kk: "Kazakh",
+  sq: "Albanian",
+  sw: "Swahili",
+  gl: "Galician",
+  mr: "Marathi",
+  pa: "Panjabi",
+  si: "Sinhala",
+  km: "Khmer",
+  sn: "Shona",
+  yo: "Yoruba",
+  so: "Somali",
+  af: "Afrikaans",
+  oc: "Occitan",
+  ka: "Georgian",
+  be: "Belarusian",
+  tg: "Tajik",
+  sd: "Sindhi",
+  gu: "Gujarati",
+  am: "Amharic",
+  yi: "Yiddish",
+  lo: "Lao",
+  uz: "Uzbek",
+  fo: "Faroese",
+  ht: "Haitian Creole",
+  ps: "Pashto",
+  tk: "Turkmen",
+  nn: "Nynorsk",
+  mt: "Maltese",
+  sa: "Sanskrit",
+  lb: "Luxembourgish",
+  my: "Myanmar",
+  bo: "Tibetan",
+  tl: "Tagalog",
+  mg: "Malagasy",
+  as: "Assamese",
+  tt: "Tatar",
+  haw: "Hawaiian",
+  ln: "Lingala",
+  ha: "Hausa",
+  ba: "Bashkir",
+  jw: "Javanese",
+  su: "Sundanese",
+  yue: "Cantonese",
+};
+
+export const SENSE_VOICE_LANGUAGES: Record<string, string> = {
+  auto: "Auto Detect",
+  zh: "Chinese",
+  en: "English",
+  ja: "Japanese",
+  ko: "Korean",
+  yue: "Cantonese",
+};
+
+export const CANARY_LANGUAGES: Record<string, string> = {
+  en: "English",
+  de: "German",
+  es: "Spanish",
+  fr: "French",
+};
+
+export const FUNASR_LANGUAGES: Record<string, string> = {
+  auto: "Auto Detect",
+  zh: "Chinese",
+  en: "English",
+  ja: "Japanese",
+  ko: "Korean",
+  yue: "Cantonese",
+};
+
+export function getLanguageName(
+  code: string,
+  model: "whisper" | "sense_voice" | "canary" | "funasr" = "whisper"
+): string {
+  switch (model) {
+    case "whisper":
+      return WHISPER_LANGUAGES[code] ?? code;
+    case "sense_voice":
+      return SENSE_VOICE_LANGUAGES[code] ?? code;
+    case "canary":
+      return CANARY_LANGUAGES[code] ?? code;
+    case "funasr":
+      return FUNASR_LANGUAGES[code] ?? code;
+    default:
+      return WHISPER_LANGUAGES[code] ?? code;
+  }
+}

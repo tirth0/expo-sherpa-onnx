@@ -23,6 +23,12 @@ public class ExpoSherpaOnnxModule: Module {
   private var speakerStreams: [Int: SherpaOnnxOnlineStreamWrapper] = [:]
   private var speakerManagers: [Int: OpaquePointer] = [:]
   private var diarizationEngines: [Int: SherpaOnnxOfflineSpeakerDiarizationWrapper] = [:]
+  private var slidEngines: [Int: SherpaOnnxSpokenLanguageIdentificationWrapper] = [:]
+  private var audioTaggingEngines: [Int: OpaquePointer] = [:]
+  private var offlinePunctuationEngines: [Int: SherpaOnnxOfflinePunctuationWrapper] = [:]
+  private var onlinePunctuationEngines: [Int: SherpaOnnxOnlinePunctuationWrapper] = [:]
+  private var offlineSpeechDenoiserEngines: [Int: SherpaOnnxOfflineSpeechDenoiserWrapper] = [:]
+  private var onlineSpeechDenoiserEngines: [Int: SherpaOnnxOnlineSpeechDenoiserWrapper] = [:]
 
   private func nextHandle() -> Int {
     lock.lock()
@@ -47,6 +53,15 @@ public class ExpoSherpaOnnxModule: Module {
       }
       self.speakerManagers.removeAll()
       self.diarizationEngines.removeAll()
+      self.slidEngines.removeAll()
+      for (_, ptr) in self.audioTaggingEngines {
+        SherpaOnnxDestroyAudioTagging(ptr)
+      }
+      self.audioTaggingEngines.removeAll()
+      self.offlinePunctuationEngines.removeAll()
+      self.onlinePunctuationEngines.removeAll()
+      self.offlineSpeechDenoiserEngines.removeAll()
+      self.onlineSpeechDenoiserEngines.removeAll()
     }
 
     // MARK: - Version Info
@@ -888,6 +903,369 @@ public class ExpoSherpaOnnxModule: Module {
       self.lock.lock()
       self.diarizationEngines.removeValue(forKey: handle)
       self.lock.unlock()
+    }
+
+    // =========================================================================
+    // Spoken Language Identification
+    // =========================================================================
+
+    AsyncFunction("createSpokenLanguageIdentification") { (config: [String: Any]) -> Int in
+      let whisperMap = config["whisper"] as? [String: Any] ?? [:]
+      var whisperConfig = sherpaOnnxSpokenLanguageIdentificationWhisperConfig(
+        encoder: whisperMap["encoder"] as? String ?? "",
+        decoder: whisperMap["decoder"] as? String ?? "",
+        tailPaddings: whisperMap["tailPaddings"] as? Int ?? -1
+      )
+      var slidConfig = sherpaOnnxSpokenLanguageIdentificationConfig(
+        whisper: whisperConfig,
+        numThreads: config["numThreads"] as? Int ?? 1,
+        debug: (config["debug"] as? Bool ?? false) ? 1 : 0,
+        provider: config["provider"] as? String ?? "cpu"
+      )
+      let slid = SherpaOnnxSpokenLanguageIdentificationWrapper(config: &slidConfig)
+      let handle = self.nextHandle()
+      self.lock.lock()
+      self.slidEngines[handle] = slid
+      self.lock.unlock()
+      return handle
+    }
+
+    AsyncFunction("spokenLanguageIdentificationCompute") { (handle: Int, samples: [Double], sampleRate: Int) -> String in
+      guard let slid = self.slidEngines[handle] else {
+        throw SherpaError.invalidHandle("SLID", handle)
+      }
+      let floatSamples = samples.map { Float($0) }
+      let result = slid.decode(samples: floatSamples, sampleRate: sampleRate)
+      return result.lang
+    }
+
+    AsyncFunction("spokenLanguageIdentificationComputeFromFile") { (handle: Int, filePath: String) -> String in
+      guard let slid = self.slidEngines[handle] else {
+        throw SherpaError.invalidHandle("SLID", handle)
+      }
+      let wave = SherpaOnnxWaveWrapper.readWave(filename: filePath)
+      guard wave.wave != nil else {
+        throw NSError(domain: "ExpoSherpaOnnx", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to read wave file: \(filePath)"])
+      }
+      let result = slid.decode(samples: wave.samples, sampleRate: wave.sampleRate)
+      return result.lang
+    }
+
+    AsyncFunction("destroySpokenLanguageIdentification") { (handle: Int) in
+      self.lock.lock()
+      self.slidEngines.removeValue(forKey: handle)
+      self.lock.unlock()
+    }
+
+    // =========================================================================
+    // Audio Tagging (C API - no Swift wrapper available)
+    // =========================================================================
+
+    AsyncFunction("createAudioTagging") { (config: [String: Any]) -> Int in
+      let modelMap = config["model"] as? [String: Any] ?? [:]
+      let zipformerMap = modelMap["zipformer"] as? [String: Any] ?? [:]
+
+      var zipformerConfig = SherpaOnnxOfflineZipformerAudioTaggingModelConfig(
+        model: toCPointer(zipformerMap["model"] as? String ?? "")
+      )
+      var modelConfig = SherpaOnnxAudioTaggingModelConfig(
+        zipformer: zipformerConfig,
+        ced: toCPointer(modelMap["ced"] as? String ?? ""),
+        num_threads: Int32(modelMap["numThreads"] as? Int ?? 1),
+        debug: Int32((modelMap["debug"] as? Bool ?? false) ? 1 : 0),
+        provider: toCPointer(modelMap["provider"] as? String ?? "cpu")
+      )
+      var taggingConfig = SherpaOnnxAudioTaggingConfig(
+        model: modelConfig,
+        labels: toCPointer(config["labels"] as? String ?? ""),
+        top_k: Int32(config["topK"] as? Int ?? 5)
+      )
+      guard let tagger = SherpaOnnxCreateAudioTagging(&taggingConfig) else {
+        throw NSError(domain: "ExpoSherpaOnnx", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create audio tagger"])
+      }
+      let handle = self.nextHandle()
+      self.lock.lock()
+      self.audioTaggingEngines[handle] = tagger
+      self.lock.unlock()
+      return handle
+    }
+
+    AsyncFunction("audioTaggingCompute") { (handle: Int, samples: [Double], sampleRate: Int, topK: Int) -> [[String: Any]] in
+      guard let tagger = self.audioTaggingEngines[handle] else {
+        throw SherpaError.invalidHandle("AudioTagging", handle)
+      }
+      let stream = SherpaOnnxAudioTaggingCreateOfflineStream(tagger)!
+      let floatSamples = samples.map { Float($0) }
+      SherpaOnnxAcceptWaveformOffline(stream, Int32(sampleRate), floatSamples, Int32(floatSamples.count))
+      let results = SherpaOnnxAudioTaggingCompute(tagger, stream, Int32(topK))
+      SherpaOnnxDestroyOfflineStream(stream)
+      var events: [[String: Any]] = []
+      if let results = results {
+        var i = 0
+        while results[i] != nil {
+          let ev = results[i]!.pointee
+          events.append([
+            "name": String(cString: ev.name),
+            "index": Int(ev.index),
+            "prob": Double(ev.prob),
+          ])
+          i += 1
+        }
+        SherpaOnnxAudioTaggingFreeResults(results)
+      }
+      return events
+    }
+
+    AsyncFunction("audioTaggingComputeFromFile") { (handle: Int, filePath: String, topK: Int) -> [[String: Any]] in
+      guard let tagger = self.audioTaggingEngines[handle] else {
+        throw SherpaError.invalidHandle("AudioTagging", handle)
+      }
+      let wave = SherpaOnnxWaveWrapper.readWave(filename: filePath)
+      guard wave.wave != nil else {
+        throw NSError(domain: "ExpoSherpaOnnx", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to read wave file: \(filePath)"])
+      }
+      let stream = SherpaOnnxAudioTaggingCreateOfflineStream(tagger)!
+      SherpaOnnxAcceptWaveformOffline(stream, Int32(wave.sampleRate), wave.samples, Int32(wave.samples.count))
+      let results = SherpaOnnxAudioTaggingCompute(tagger, stream, Int32(topK))
+      SherpaOnnxDestroyOfflineStream(stream)
+      var events: [[String: Any]] = []
+      if let results = results {
+        var i = 0
+        while results[i] != nil {
+          let ev = results[i]!.pointee
+          events.append([
+            "name": String(cString: ev.name),
+            "index": Int(ev.index),
+            "prob": Double(ev.prob),
+          ])
+          i += 1
+        }
+        SherpaOnnxAudioTaggingFreeResults(results)
+      }
+      return events
+    }
+
+    AsyncFunction("destroyAudioTagging") { (handle: Int) in
+      self.lock.lock()
+      if let ptr = self.audioTaggingEngines.removeValue(forKey: handle) {
+        SherpaOnnxDestroyAudioTagging(ptr)
+      }
+      self.lock.unlock()
+    }
+
+    // =========================================================================
+    // Punctuation (Offline + Online)
+    // =========================================================================
+
+    AsyncFunction("createOfflinePunctuation") { (config: [String: Any]) -> Int in
+      let modelMap = config["model"] as? [String: Any] ?? [:]
+      var modelConfig = sherpaOnnxOfflinePunctuationModelConfig(
+        ctTransformer: modelMap["ctTransformer"] as? String ?? "",
+        numThreads: modelMap["numThreads"] as? Int ?? 1,
+        debug: (modelMap["debug"] as? Bool ?? false) ? 1 : 0,
+        provider: modelMap["provider"] as? String ?? "cpu"
+      )
+      var punctConfig = sherpaOnnxOfflinePunctuationConfig(model: modelConfig)
+      let punct = SherpaOnnxOfflinePunctuationWrapper(config: &punctConfig)
+      let handle = self.nextHandle()
+      self.lock.lock()
+      self.offlinePunctuationEngines[handle] = punct
+      self.lock.unlock()
+      return handle
+    }
+
+    AsyncFunction("offlinePunctuationAddPunct") { (handle: Int, text: String) -> String in
+      guard let punct = self.offlinePunctuationEngines[handle] else {
+        throw SherpaError.invalidHandle("OfflinePunctuation", handle)
+      }
+      return punct.addPunct(text: text)
+    }
+
+    AsyncFunction("destroyOfflinePunctuation") { (handle: Int) in
+      self.lock.lock()
+      self.offlinePunctuationEngines.removeValue(forKey: handle)
+      self.lock.unlock()
+    }
+
+    AsyncFunction("createOnlinePunctuation") { (config: [String: Any]) -> Int in
+      let modelMap = config["model"] as? [String: Any] ?? [:]
+      var modelConfig = sherpaOnnxOnlinePunctuationModelConfig(
+        cnnBiLstm: modelMap["cnnBilstm"] as? String ?? "",
+        bpeVocab: modelMap["bpeVocab"] as? String ?? "",
+        numThreads: modelMap["numThreads"] as? Int ?? 1,
+        debug: (modelMap["debug"] as? Bool ?? false) ? 1 : 0,
+        provider: modelMap["provider"] as? String ?? "cpu"
+      )
+      var punctConfig = sherpaOnnxOnlinePunctuationConfig(model: modelConfig)
+      let punct = SherpaOnnxOnlinePunctuationWrapper(config: &punctConfig)
+      let handle = self.nextHandle()
+      self.lock.lock()
+      self.onlinePunctuationEngines[handle] = punct
+      self.lock.unlock()
+      return handle
+    }
+
+    AsyncFunction("onlinePunctuationAddPunct") { (handle: Int, text: String) -> String in
+      guard let punct = self.onlinePunctuationEngines[handle] else {
+        throw SherpaError.invalidHandle("OnlinePunctuation", handle)
+      }
+      return punct.addPunct(text: text)
+    }
+
+    AsyncFunction("destroyOnlinePunctuation") { (handle: Int) in
+      self.lock.lock()
+      self.onlinePunctuationEngines.removeValue(forKey: handle)
+      self.lock.unlock()
+    }
+
+    // =========================================================================
+    // Speech Denoising (Offline + Online)
+    // =========================================================================
+
+    AsyncFunction("createOfflineSpeechDenoiser") { (config: [String: Any]) -> Int in
+      let modelMap = config["model"] as? [String: Any] ?? [:]
+      let gtcrnMap = modelMap["gtcrn"] as? [String: Any] ?? [:]
+      let dpdfnetMap = modelMap["dpdfnet"] as? [String: Any] ?? [:]
+      let gtcrn = sherpaOnnxOfflineSpeechDenoiserGtcrnModelConfig(model: gtcrnMap["model"] as? String ?? "")
+      let dpdfnet = sherpaOnnxOfflineSpeechDenoiserDpdfNetModelConfig(model: dpdfnetMap["model"] as? String ?? "")
+      let denoiserModel = sherpaOnnxOfflineSpeechDenoiserModelConfig(
+        gtcrn: gtcrn,
+        dpdfnet: dpdfnet,
+        numThreads: modelMap["numThreads"] as? Int ?? 1,
+        provider: modelMap["provider"] as? String ?? "cpu",
+        debug: (modelMap["debug"] as? Bool ?? false) ? 1 : 0
+      )
+      var denoiserConfig = sherpaOnnxOfflineSpeechDenoiserConfig(model: denoiserModel)
+      let denoiser = SherpaOnnxOfflineSpeechDenoiserWrapper(config: &denoiserConfig)
+      let handle = self.nextHandle()
+      self.lock.lock()
+      self.offlineSpeechDenoiserEngines[handle] = denoiser
+      self.lock.unlock()
+      return handle
+    }
+
+    AsyncFunction("offlineSpeechDenoiserRun") { (handle: Int, samples: [Double], sampleRate: Int) -> [String: Any] in
+      guard let denoiser = self.offlineSpeechDenoiserEngines[handle] else {
+        throw SherpaError.invalidHandle("OfflineSpeechDenoiser", handle)
+      }
+      let floatSamples = samples.map { Float($0) }
+      let result = denoiser.run(samples: floatSamples, sampleRate: sampleRate)
+      return [
+        "samples": result.samples.map { Double($0) },
+        "sampleRate": Int(result.sampleRate),
+      ]
+    }
+
+    AsyncFunction("offlineSpeechDenoiserRunFromFile") { (handle: Int, filePath: String) -> [String: Any] in
+      guard let denoiser = self.offlineSpeechDenoiserEngines[handle] else {
+        throw SherpaError.invalidHandle("OfflineSpeechDenoiser", handle)
+      }
+      let wave = SherpaOnnxWaveWrapper.readWave(filename: filePath)
+      guard wave.wave != nil else {
+        throw NSError(domain: "ExpoSherpaOnnx", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to read wave file: \(filePath)"])
+      }
+      let result = denoiser.run(samples: wave.samples, sampleRate: wave.sampleRate)
+      return [
+        "samples": result.samples.map { Double($0) },
+        "sampleRate": Int(result.sampleRate),
+      ]
+    }
+
+    AsyncFunction("offlineSpeechDenoiserSaveToFile") { (handle: Int, inputPath: String, outputPath: String) -> [String: Any] in
+      guard let denoiser = self.offlineSpeechDenoiserEngines[handle] else {
+        throw SherpaError.invalidHandle("OfflineSpeechDenoiser", handle)
+      }
+      let wave = SherpaOnnxWaveWrapper.readWave(filename: inputPath)
+      guard wave.wave != nil else {
+        throw NSError(domain: "ExpoSherpaOnnx", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to read wave file: \(inputPath)"])
+      }
+      let result = denoiser.run(samples: wave.samples, sampleRate: wave.sampleRate)
+      let _ = result.save(filename: outputPath)
+      return [
+        "outputPath": outputPath,
+        "sampleRate": Int(result.sampleRate),
+      ]
+    }
+
+    AsyncFunction("destroyOfflineSpeechDenoiser") { (handle: Int) in
+      self.lock.lock()
+      self.offlineSpeechDenoiserEngines.removeValue(forKey: handle)
+      self.lock.unlock()
+    }
+
+    AsyncFunction("createOnlineSpeechDenoiser") { (config: [String: Any]) -> Int in
+      let modelMap = config["model"] as? [String: Any] ?? [:]
+      let gtcrnMap = modelMap["gtcrn"] as? [String: Any] ?? [:]
+      let dpdfnetMap = modelMap["dpdfnet"] as? [String: Any] ?? [:]
+      let gtcrn = sherpaOnnxOfflineSpeechDenoiserGtcrnModelConfig(model: gtcrnMap["model"] as? String ?? "")
+      let dpdfnet = sherpaOnnxOfflineSpeechDenoiserDpdfNetModelConfig(model: dpdfnetMap["model"] as? String ?? "")
+      let denoiserModel = sherpaOnnxOfflineSpeechDenoiserModelConfig(
+        gtcrn: gtcrn,
+        dpdfnet: dpdfnet,
+        numThreads: modelMap["numThreads"] as? Int ?? 1,
+        provider: modelMap["provider"] as? String ?? "cpu",
+        debug: (modelMap["debug"] as? Bool ?? false) ? 1 : 0
+      )
+      var denoiserConfig = sherpaOnnxOnlineSpeechDenoiserConfig(model: denoiserModel)
+      let denoiser = SherpaOnnxOnlineSpeechDenoiserWrapper(config: &denoiserConfig)
+      let handle = self.nextHandle()
+      self.lock.lock()
+      self.onlineSpeechDenoiserEngines[handle] = denoiser
+      self.lock.unlock()
+      return handle
+    }
+
+    AsyncFunction("onlineSpeechDenoiserRun") { (handle: Int, samples: [Double], sampleRate: Int) -> [String: Any] in
+      guard let denoiser = self.onlineSpeechDenoiserEngines[handle] else {
+        throw SherpaError.invalidHandle("OnlineSpeechDenoiser", handle)
+      }
+      let floatSamples = samples.map { Float($0) }
+      let result = denoiser.run(samples: floatSamples, sampleRate: sampleRate)
+      return [
+        "samples": result.samples.map { Double($0) },
+        "sampleRate": Int(result.sampleRate),
+      ]
+    }
+
+    AsyncFunction("onlineSpeechDenoiserFlush") { (handle: Int) -> [String: Any] in
+      guard let denoiser = self.onlineSpeechDenoiserEngines[handle] else {
+        throw SherpaError.invalidHandle("OnlineSpeechDenoiser", handle)
+      }
+      let result = denoiser.flush()
+      return [
+        "samples": result.samples.map { Double($0) },
+        "sampleRate": Int(result.sampleRate),
+      ]
+    }
+
+    AsyncFunction("destroyOnlineSpeechDenoiser") { (handle: Int) in
+      self.lock.lock()
+      self.onlineSpeechDenoiserEngines.removeValue(forKey: handle)
+      self.lock.unlock()
+    }
+
+    // =========================================================================
+    // File Utilities
+    // =========================================================================
+
+    AsyncFunction("saveAudioToFile") { (samples: [Double], sampleRate: Int, filePath: String) -> Bool in
+      let floatSamples = samples.map { Float($0) }
+      let result = SherpaOnnxWriteWave(floatSamples, Int32(floatSamples.count), Int32(sampleRate), toCPointer(filePath))
+      return result == 1
+    }
+
+    AsyncFunction("shareAudioFile") { (filePath: String, mimeType: String) in
+      let url = URL(fileURLWithPath: filePath)
+      guard FileManager.default.fileExists(atPath: filePath) else {
+        throw NSError(domain: "ExpoSherpaOnnx", code: -1, userInfo: [NSLocalizedDescriptionKey: "File not found: \(filePath)"])
+      }
+      DispatchQueue.main.async {
+        let activityVC = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let rootVC = scene.windows.first?.rootViewController {
+          rootVC.present(activityVC, animated: true)
+        }
+      }
     }
   }
 

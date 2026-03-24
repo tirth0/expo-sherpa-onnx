@@ -7,7 +7,7 @@
 ![platforms](https://img.shields.io/badge/platforms-android%20%7C%20ios-lightgrey)
 ![tests](https://img.shields.io/badge/tests-364%20passed-brightgreen)
 ![statements](https://img.shields.io/badge/coverage%3A%20statements-89.17%25-yellow)
-![lines](https://img.shields.io/badge/coverage%3A%20lines-88.33%25-yellow)
+![lines](https://img.shields.io/badge/coverage%3A%20lines-88.32%25-yellow)
 ![functions](https://img.shields.io/badge/coverage%3A%20functions-94.71%25-brightgreen)
 ![branches](https://img.shields.io/badge/coverage%3A%20branches-59.43%25-orange)
 

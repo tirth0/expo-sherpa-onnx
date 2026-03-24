@@ -694,3 +694,226 @@ export async function destroyOfflineSpeakerDiarization(
 ): Promise<void> {
   destroyedDiarizations.add(handle);
 }
+
+// Spoken Language Identification mocks
+
+let slidHandleCounter = 1300;
+const destroyedSlids = new Set<number>();
+
+export async function createSpokenLanguageIdentification(
+  _config: Record<string, unknown>
+): Promise<number> {
+  return ++slidHandleCounter;
+}
+
+export async function spokenLanguageIdentificationCompute(
+  handle: number,
+  _samples: number[],
+  _sampleRate: number
+): Promise<string> {
+  if (destroyedSlids.has(handle))
+    throw new Error(`Native: SLID ${handle} already destroyed`);
+  return "en";
+}
+
+export async function spokenLanguageIdentificationComputeFromFile(
+  handle: number,
+  _filePath: string
+): Promise<string> {
+  if (destroyedSlids.has(handle))
+    throw new Error(`Native: SLID ${handle} already destroyed`);
+  return "en";
+}
+
+export async function destroySpokenLanguageIdentification(
+  handle: number
+): Promise<void> {
+  destroyedSlids.add(handle);
+}
+
+// Audio Tagging mocks
+
+let audioTaggingHandleCounter = 1400;
+const destroyedAudioTaggings = new Set<number>();
+
+export async function createAudioTagging(
+  _config: Record<string, unknown>
+): Promise<number> {
+  return ++audioTaggingHandleCounter;
+}
+
+export async function audioTaggingCompute(
+  handle: number,
+  _samples: number[],
+  _sampleRate: number,
+  _topK: number
+): Promise<Array<{ name: string; index: number; prob: number }>> {
+  if (destroyedAudioTaggings.has(handle))
+    throw new Error(`Native: AudioTagging ${handle} already destroyed`);
+  return [
+    { name: "Speech", index: 0, prob: 0.95 },
+    { name: "Music", index: 1, prob: 0.03 },
+    { name: "Silence", index: 2, prob: 0.02 },
+  ];
+}
+
+export async function audioTaggingComputeFromFile(
+  handle: number,
+  _filePath: string,
+  _topK: number
+): Promise<Array<{ name: string; index: number; prob: number }>> {
+  if (destroyedAudioTaggings.has(handle))
+    throw new Error(`Native: AudioTagging ${handle} already destroyed`);
+  return [
+    { name: "Speech", index: 0, prob: 0.92 },
+    { name: "Music", index: 1, prob: 0.05 },
+  ];
+}
+
+export async function destroyAudioTagging(handle: number): Promise<void> {
+  destroyedAudioTaggings.add(handle);
+}
+
+// Punctuation mocks (Offline + Online)
+
+let offlinePunctHandleCounter = 1500;
+const destroyedOfflinePuncts = new Set<number>();
+let onlinePunctHandleCounter = 1600;
+const destroyedOnlinePuncts = new Set<number>();
+
+export async function createOfflinePunctuation(
+  _config: Record<string, unknown>
+): Promise<number> {
+  return ++offlinePunctHandleCounter;
+}
+
+export async function offlinePunctuationAddPunct(
+  handle: number,
+  text: string
+): Promise<string> {
+  if (destroyedOfflinePuncts.has(handle))
+    throw new Error(`Native: OfflinePunctuation ${handle} already destroyed`);
+  return text.charAt(0).toUpperCase() + text.slice(1) + ".";
+}
+
+export async function destroyOfflinePunctuation(handle: number): Promise<void> {
+  destroyedOfflinePuncts.add(handle);
+}
+
+export async function createOnlinePunctuation(
+  _config: Record<string, unknown>
+): Promise<number> {
+  return ++onlinePunctHandleCounter;
+}
+
+export async function onlinePunctuationAddPunct(
+  handle: number,
+  text: string
+): Promise<string> {
+  if (destroyedOnlinePuncts.has(handle))
+    throw new Error(`Native: OnlinePunctuation ${handle} already destroyed`);
+  return text.charAt(0).toUpperCase() + text.slice(1) + ".";
+}
+
+export async function destroyOnlinePunctuation(handle: number): Promise<void> {
+  destroyedOnlinePuncts.add(handle);
+}
+
+// Speech Denoising mocks (Offline + Online)
+
+let offlineDenoiserHandleCounter = 1700;
+const destroyedOfflineDenoiserEngines = new Set<number>();
+let onlineDenoiserHandleCounter = 1800;
+const destroyedOnlineDenoiserEngines = new Set<number>();
+
+export async function createOfflineSpeechDenoiser(
+  _config: Record<string, unknown>
+): Promise<number> {
+  return ++offlineDenoiserHandleCounter;
+}
+
+export async function offlineSpeechDenoiserRun(
+  handle: number,
+  samples: number[],
+  _sampleRate: number
+): Promise<{ samples: number[]; sampleRate: number }> {
+  if (destroyedOfflineDenoiserEngines.has(handle))
+    throw new Error(
+      `Native: OfflineSpeechDenoiser ${handle} already destroyed`
+    );
+  return { samples: samples.map((s) => s * 0.9), sampleRate: 16000 };
+}
+
+export async function offlineSpeechDenoiserRunFromFile(
+  handle: number,
+  _filePath: string
+): Promise<{ samples: number[]; sampleRate: number }> {
+  if (destroyedOfflineDenoiserEngines.has(handle))
+    throw new Error(
+      `Native: OfflineSpeechDenoiser ${handle} already destroyed`
+    );
+  return { samples: [0.05, 0.1, 0.15, 0.1, 0.05], sampleRate: 16000 };
+}
+
+export async function offlineSpeechDenoiserSaveToFile(
+  handle: number,
+  _inputPath: string,
+  outputPath: string
+): Promise<{ outputPath: string; sampleRate: number }> {
+  if (destroyedOfflineDenoiserEngines.has(handle))
+    throw new Error(
+      `Native: OfflineSpeechDenoiser ${handle} already destroyed`
+    );
+  return { outputPath, sampleRate: 16000 };
+}
+
+export async function destroyOfflineSpeechDenoiser(
+  handle: number
+): Promise<void> {
+  destroyedOfflineDenoiserEngines.add(handle);
+}
+
+export async function createOnlineSpeechDenoiser(
+  _config: Record<string, unknown>
+): Promise<number> {
+  return ++onlineDenoiserHandleCounter;
+}
+
+export async function onlineSpeechDenoiserRun(
+  handle: number,
+  samples: number[],
+  _sampleRate: number
+): Promise<{ samples: number[]; sampleRate: number }> {
+  if (destroyedOnlineDenoiserEngines.has(handle))
+    throw new Error(`Native: OnlineSpeechDenoiser ${handle} already destroyed`);
+  return { samples: samples.map((s) => s * 0.9), sampleRate: 16000 };
+}
+
+export async function onlineSpeechDenoiserFlush(
+  handle: number
+): Promise<{ samples: number[]; sampleRate: number }> {
+  if (destroyedOnlineDenoiserEngines.has(handle))
+    throw new Error(`Native: OnlineSpeechDenoiser ${handle} already destroyed`);
+  return { samples: [0.01, 0.02], sampleRate: 16000 };
+}
+
+export async function destroyOnlineSpeechDenoiser(
+  handle: number
+): Promise<void> {
+  destroyedOnlineDenoiserEngines.add(handle);
+}
+
+// File Utilities mocks
+
+export async function saveAudioToFile(
+  _samples: number[],
+  _sampleRate: number,
+  _filePath: string
+): Promise<boolean> {
+  return true;
+}
+
+export async function shareAudioFile(
+  _filePath: string,
+  _mimeType: string
+): Promise<void> {}
